@@ -394,6 +394,6 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 ## Notes
 
 - Apple Mail automation is ultimately limited by what Mail exposes to AppleScript/JXA.
-- Licensed under the [Apache License 2.0](LICENSE). Copyright 2026 smitjj.
-- Owner/maintainer: [smitjj](https://github.com/smitjj).
+- Licensed under the [Apache License 2.0](LICENSE).
+- Maintained by [smitjj](https://github.com/smitjj).
 - The architectural direction is documented in [plugins/apple-productivity/ARCHITECTURE.md](plugins/apple-productivity/ARCHITECTURE.md).
