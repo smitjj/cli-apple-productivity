@@ -12,7 +12,7 @@ from unittest import mock
 
 import apple_productivity_cli as cli
 from apple_productivity_registry import TOOL_SPECS, mcp_tools
-from shared_validation import validate_action
+from shared_validation import validate_action, validate_tool_arguments
 
 
 class RegistryParityTests(unittest.TestCase):
@@ -26,6 +26,11 @@ class RegistryParityTests(unittest.TestCase):
             action_schema = schemas[spec.name]["inputSchema"]["properties"]["action"]
             self.assertEqual(set(spec.actions), set(action_schema["enum"]))
             self.assertEqual(validate_action({"action": spec.actions[0]}, set(spec.actions)), spec.actions[0])
+
+    def test_validation_rejects_arguments_missing_from_registry(self):
+        for spec in TOOL_SPECS:
+            with self.assertRaises(RuntimeError, msg=spec.name):
+                validate_tool_arguments(spec.name, {"action": spec.actions[0], "__extra": True})
 
     def test_cli_parser_exposes_registry_tools(self):
         parser = cli.build_parser()

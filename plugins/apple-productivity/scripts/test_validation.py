@@ -212,6 +212,13 @@ class IntegerValidationTests(unittest.TestCase):
     def test_accepts_integer(self):
         validate_tool_arguments("mail_messages", {"action": "get", "message_id": 42})
 
+    def test_registry_bounds_apply_to_limit(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments(
+                "mail_messages",
+                {"action": "list", "mailbox_name": "INBOX", "limit": 101},
+            )
+
 
 class CalendarFieldTests(unittest.TestCase):
     def test_create_accepts_url_and_recurrence(self):

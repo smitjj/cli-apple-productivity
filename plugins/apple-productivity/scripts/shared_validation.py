@@ -12,6 +12,8 @@ from datetime import datetime
 from email.utils import parseaddr
 import re
 
+from apple_productivity_registry import TOOL_BY_NAME
+
 
 SAFE_TEXT_PATTERN = re.compile(r"^[^\x00-\x08\x0B\x0C\x0E-\x1F\x7F]*$")
 DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -22,40 +24,25 @@ EMAIL_LOCAL_PATTERN = re.compile(r"^[^\s@]+$")
 EMAIL_DOMAIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
 
-MAIL_MESSAGE_ACTIONS = {
-    "list",
-    "get",
-    "search",
-    "move",
-    "delete",
-    "set-read",
-    "set-flag",
-    "open",
-    "get-attachment",
-    "get-thread",
-    "get-unsubscribe-link",
-    "bulk-set-read",
-    "bulk-set-flag",
-    "bulk-move",
-    "bulk-delete",
-}
-MAIL_COMPOSE_ACTIONS = {"create", "reply", "forward"}
-MAIL_DRAFT_ACTIONS = {"list", "get", "update", "send", "delete"}
-CALENDAR_EVENT_ACTIONS = {"list", "get", "create", "update", "delete", "open"}
-REMINDER_LIST_ACTIONS = {"list", "create", "update", "delete"}
-REMINDER_TASK_ACTIONS = {"list", "get", "create", "update", "delete", "complete", "incomplete"}
+MAIL_MESSAGE_ACTIONS = set(TOOL_BY_NAME["mail_messages"].actions)
+MAIL_COMPOSE_ACTIONS = set(TOOL_BY_NAME["mail_compose"].actions)
+MAIL_DRAFT_ACTIONS = set(TOOL_BY_NAME["mail_drafts"].actions)
+CALENDAR_EVENT_ACTIONS = set(TOOL_BY_NAME["calendar_events"].actions)
+REMINDER_LIST_ACTIONS = set(TOOL_BY_NAME["reminders_lists"].actions)
+REMINDER_TASK_ACTIONS = set(TOOL_BY_NAME["reminders_tasks"].actions)
 BULK_LIMIT = 50
 
 
 def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
+    validate_registered_contract(tool_name, arguments)
     for key, value in arguments.items():
         validate_value(key, value)
 
     if tool_name == "mail_accounts":
-        validate_action(arguments, {"list"}, required=False)
+        validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         return
     if tool_name == "mail_mailboxes":
-        validate_action(arguments, {"list"}, required=False)
+        validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         validate_string(arguments, "account_name")
         validate_boolean(arguments, "include_counts")
         return
@@ -69,10 +56,10 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
         validate_mail_drafts(arguments)
         return
     if tool_name == "mail_permissions_check":
-        validate_action(arguments, {"check"}, required=False)
+        validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         return
     if tool_name == "calendar_calendars":
-        validate_action(arguments, {"list"}, required=False)
+        validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         validate_boolean(arguments, "include_counts")
         return
     if tool_name == "calendar_events":
@@ -85,6 +72,38 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
         validate_reminder_tasks(arguments)
         return
     raise RuntimeError(f"Unknown tool: {tool_name}")
+
+
+def validate_registered_contract(tool_name: str, arguments: dict) -> None:
+    spec = TOOL_BY_NAME.get(tool_name)
+    if spec is None:
+        raise RuntimeError(f"Unknown tool: {tool_name}")
+
+    validate_action(arguments, set(spec.actions), required=spec.action_required)
+    allowed_fields = {"action", *(arg.name for arg in spec.arguments)}
+    if tool_name == "reminders_tasks":
+        allowed_fields.add("geofence")
+    extra_fields = sorted(set(arguments) - allowed_fields)
+    if extra_fields:
+        raise RuntimeError(f"{tool_name} does not accept argument(s): {', '.join(extra_fields)}")
+
+    for arg in spec.arguments:
+        if arg.name not in arguments:
+            continue
+        validate_registered_bounds(arg.name, arguments[arg.name], arg.minimum, arg.maximum)
+
+
+def validate_registered_bounds(field: str, value, minimum, maximum) -> None:
+    if minimum is None and maximum is None:
+        return
+    values = value if isinstance(value, list) else [value]
+    for item in values:
+        if isinstance(item, bool) or not isinstance(item, (int, float)):
+            continue
+        if minimum is not None and item < minimum:
+            raise RuntimeError(f"{field} must be at least {minimum}.")
+        if maximum is not None and item > maximum:
+            raise RuntimeError(f"{field} must be at most {maximum}.")
 
 
 def validate_mail_messages(arguments: dict) -> None:
