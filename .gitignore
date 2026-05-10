@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Per-user Claude Code state (not project-shared)
+.claude/settings.local.json
+
+# Diagnostic logs the service may write when APPLE_PRODUCTIVITY_LOG is set
+/tmp/apple-productivity-*.log

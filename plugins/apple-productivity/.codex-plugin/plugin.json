@@ -1,0 +1,46 @@
+{
+  "name": "apple-productivity",
+  "version": "0.5.0",
+  "description": "Control Apple Mail, Calendar, and Reminders on macOS from Codex through a native local MCP server.",
+  "author": {
+    "name": "smitjj",
+    "email": "smitjj@users.noreply.github.com",
+    "url": "https://github.com/smitjj"
+  },
+  "homepage": "https://github.com/smitjj/cli-apple-productivity",
+  "repository": "https://github.com/smitjj/cli-apple-productivity",
+  "license": "MIT",
+  "keywords": [
+    "mail",
+    "apple-mail",
+    "calendar",
+    "reminders",
+    "macos",
+    "email",
+    "automation",
+    "mcp"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Apple Productivity",
+    "shortDescription": "Use Apple Mail, Calendar, and Reminders from Codex",
+    "longDescription": "A local macOS plugin that exposes Apple Mail, Calendar, and Reminders through one native JXA-backed MCP server with grouped action-oriented tools.",
+    "developerName": "smitjj",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/smitjj/cli-apple-productivity",
+    "privacyPolicyURL": "https://github.com/smitjj/cli-apple-productivity",
+    "termsOfServiceURL": "https://github.com/smitjj/cli-apple-productivity",
+    "defaultPrompt": [
+      "Summarize unread messages from my main inbox",
+      "Draft an email in Apple Mail to my team",
+      "Create a reminder and a calendar event for next week"
+    ],
+    "brandColor": "#1F6FEB",
+    "screenshots": []
+  }
+}
