@@ -153,6 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_flags(doctor)
     doctor.set_defaults(kind="compound", compound="doctor")
 
+    completions = sub.add_parser("completions", help="Print shell completion script.")
+    completions.set_defaults(kind="completions")
+    completions.add_argument("shell", choices=("bash", "zsh"))
+
     return parser
 
 
@@ -570,6 +574,9 @@ def emit_json(value: Any, *, compact: bool) -> None:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = build_parser()
     namespace = parser.parse_args(argv)
+    if namespace.kind == "completions":
+        print_completion(namespace.shell)
+        return EXIT_OK
     service = AppleProductivityService(timeout_seconds=namespace.timeout)
 
     if namespace.kind == "repl":
@@ -596,6 +603,65 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     compact = namespace.compact or namespace.raw or not namespace.pretty
     emit_json(result, compact=compact)
     return EXIT_OK
+
+
+def print_completion(shell: str) -> None:
+    commands = " ".join(
+        [
+            "batch",
+            "repl",
+            "doctor",
+            "mail",
+            "calendar",
+            "day",
+            *[spec.cli_name for spec in TOOL_SPECS],
+        ]
+    )
+    mail_commands = "triage newsletters thread open move archive"
+    calendar_commands = "agenda"
+    day_commands = "plan"
+    if shell == "bash":
+        print(
+            f"""_apple_productivity_complete() {{
+  local cur prev
+  COMPREPLY=()
+  cur="${{COMP_WORDS[COMP_CWORD]}}"
+  prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "{commands}" -- "$cur") )
+  elif [[ ${{COMP_WORDS[1]}} == "mail" && $COMP_CWORD -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "{mail_commands}" -- "$cur") )
+  elif [[ ${{COMP_WORDS[1]}} == "calendar" && $COMP_CWORD -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "{calendar_commands}" -- "$cur") )
+  elif [[ ${{COMP_WORDS[1]}} == "day" && $COMP_CWORD -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "{day_commands}" -- "$cur") )
+  fi
+}}
+complete -F _apple_productivity_complete apple-productivity
+"""
+        )
+        return
+    print(
+        f"""#compdef apple-productivity
+_apple_productivity() {{
+  local -a commands mail_commands calendar_commands day_commands
+  commands=({commands})
+  mail_commands=({mail_commands})
+  calendar_commands=({calendar_commands})
+  day_commands=({day_commands})
+  if (( CURRENT == 2 )); then
+    _describe 'command' commands
+  elif [[ $words[2] == mail && CURRENT == 3 ]]; then
+    _describe 'mail command' mail_commands
+  elif [[ $words[2] == calendar && CURRENT == 3 ]]; then
+    _describe 'calendar command' calendar_commands
+  elif [[ $words[2] == day && CURRENT == 3 ]]; then
+    _describe 'day command' day_commands
+  fi
+}}
+_apple_productivity "$@"
+"""
+    )
 
 
 if __name__ == "__main__":

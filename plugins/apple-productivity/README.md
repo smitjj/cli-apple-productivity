@@ -40,14 +40,21 @@ From the repo root, use the short executable:
 Optional: put the CLI on your `PATH`:
 
 ```sh
-mkdir -p ~/.local/bin
-ln -sf "$PWD/apple-productivity" ~/.local/bin/apple-productivity
+./install.sh
 apple-productivity --help
 ```
 
 Make sure `~/.local/bin` is on your `PATH`.
 
 Use `./apple-productivity` from the repo root for normal CLI work.
+
+Optional shell completions:
+
+```sh
+mkdir -p ~/.zfunc ~/.local/share/bash-completion/completions
+apple-productivity completions zsh > ~/.zfunc/_apple-productivity
+apple-productivity completions bash > ~/.local/share/bash-completion/completions/apple-productivity
+```
 
 The optional MCP server entry point is:
 
@@ -75,6 +82,8 @@ Run the built-in probe to see which permissions are currently granted:
 ./apple-productivity mail-accounts list
 ./apple-productivity mail-messages list --mailbox-name INBOX --limit 5 --pretty
 ./apple-productivity mail triage --unread-only --limit 10
+./apple-productivity mail open 12345
+./apple-productivity mail archive 12345 --dry-run
 ./apple-productivity calendar agenda --days 7
 ./apple-productivity day plan
 ./apple-productivity doctor
@@ -95,6 +104,12 @@ For an interactive warm session:
 
 ```sh
 ./apple-productivity repl
+```
+
+For agent-readable REPL output without prompts:
+
+```sh
+./apple-productivity repl --jsonl --no-prompt
 ```
 
 ### Optional: connect from your MCP client
@@ -207,9 +222,9 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 | --- | --- | --- |
 | `list` | **`mailbox_name`**, `account_name?`, `limit?`, `unread_only?`, `flagged_only?` | `{mailbox, count, messages[]}` |
 | `get` | **`message_id`**, `account_name?`, `mailbox_name?`, `include_source?` | full message summary |
-| `search` | **`query`**, `account_name?`, `mailbox_name?`, `from_address?`, `to_address?`, `subject_contains?`, `since?`, `limit?` | `{query, count, messages[]}` |
-| `move` | **`message_id`**, **`target_mailbox`**, `target_account?`, `account_name?`, `mailbox_name?` | `{moved, …}` |
-| `delete` | **`message_id`**, `account_name?`, `mailbox_name?` | `{deleted, …}` |
+| `search` | `query?`, `account_name?`, `mailbox_name?`, `from_address?`, `to_address?`, `subject_contains?`, `since?`, `unread_only?`, `flagged_only?`, `limit?` | `{query, count, messages[]}` |
+| `move` | **`message_id`**, **`target_mailbox`**, `target_account?`, `account_name?`, `mailbox_name?`, `dry_run?` | `{moved, …}` |
+| `delete` | **`message_id`**, `account_name?`, `mailbox_name?`, `dry_run?` | `{deleted, …}` |
 | `set-read` | **`message_id`**, **`read`**, `account_name?`, `mailbox_name?` | `{updated, read}` |
 | `set-flag` | **`message_id`**, **`flagged`**, `account_name?`, `mailbox_name?` | `{updated, flagged}` |
 | `open` | **`message_id`**, `account_name?`, `mailbox_name?` | `{opened, …}` |
@@ -222,13 +237,17 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 
 `account_name` and `mailbox_name` are optional scoping hints on every action. Pass them when you know where the message lives — they skip the global mailbox scan and surface a clear "not found in mailbox X" error instead.
 
+`search` accepts filter-only calls, such as `--mailbox-name INBOX --unread-only`, but requires at least one query or filter.
+
+`dry_run` is accepted on mutating tools and returns a `{dryRun, wouldMutate, tool, action, arguments}` preview without calling Mail, Calendar, or Reminders.
+
 ### `mail_compose`
 
 | action | args | returns |
 | --- | --- | --- |
-| `create` | one or more of **`to`/`cc`/`bcc`**, `subject?`, `body?`, `open_in_mail?`, `send_now?` | `{sent, action, message{…}}` |
-| `reply` | **`message_id`**, `body?`, `reply_all?`, `open_in_mail?`, `send_now?` | `{sent, action, message{…}}` |
-| `forward` | **`message_id`**, **`to`**`/cc?/bcc?`, `body?`, `open_in_mail?`, `send_now?` | `{sent, action, message{…}}` |
+| `create` | one or more of **`to`/`cc`/`bcc`**, `subject?`, `body?`, `open_in_mail?`, `send_now?`, `dry_run?` | `{sent, action, message{…}}` |
+| `reply` | **`message_id`**, `body?`, `reply_all?`, `open_in_mail?`, `send_now?`, `dry_run?` | `{sent, action, message{…}}` |
+| `forward` | **`message_id`**, **`to`**`/cc?/bcc?`, `body?`, `open_in_mail?`, `send_now?`, `dry_run?` | `{sent, action, message{…}}` |
 
 ### `calendar_calendars`
 
@@ -242,9 +261,9 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 | --- | --- | --- |
 | `list` | `calendar_name?`, `search?`, `date_from?`, `date_to?`, `limit?` | `{count, events[]}` |
 | `get` | **`event_id`** | event summary |
-| `create` | **`summary`**, **`start_date`**, **`end_date`**, `calendar_name?`, `location?`, `notes?`, `all_day?` | event summary |
+| `create` | **`summary`**, **`start_date`**, **`end_date`**, `calendar_name?`, `location?`, `notes?`, `all_day?`, `dry_run?` | event summary |
 | `update` | **`event_id`**, plus any field above | event summary |
-| `delete` | **`event_id`** | `{deleted, eventId}` |
+| `delete` | **`event_id`**, `dry_run?` | `{deleted, eventId}` |
 | `open` | **`event_id`** | `{opened, eventId}` |
 
 `create` and `update` also accept `url` (homepage/meeting link) and `recurrence` (RFC 5545 RRULE string, e.g. `FREQ=WEEKLY;BYDAY=MO,WE,FR`). Both fields are surfaced in the event summary returned by `list`/`get`.
@@ -256,9 +275,9 @@ When the EventKit backend is active (PyObjC available, permission granted) `crea
 | action | args | returns |
 | --- | --- | --- |
 | `list` | `include_counts?` | array of `{id, name}` |
-| `create` | **`name`** | list summary |
+| `create` | **`name`**, `dry_run?` | list summary |
 | `update` | **`list_id`**, **`name`** | list summary |
-| `delete` | **`list_id`** | `{deleted, listId}` |
+| `delete` | **`list_id`**, `dry_run?` | `{deleted, listId}` |
 
 ### `reminders_tasks`
 
@@ -266,14 +285,14 @@ When the EventKit backend is active (PyObjC available, permission granted) `crea
 | --- | --- | --- |
 | `list` | `list_name?`, `search?`, `show_completed?`, `limit?` | `{count, reminders[]}` |
 | `get` | **`reminder_id`** | reminder summary |
-| `create` | **`title`**, `list_name?`, `notes?`, `due_date?` | reminder summary |
+| `create` | **`title`**, `list_name?`, `notes?`, `due_date?`, `dry_run?` | reminder summary |
 | `update` | **`reminder_id`**, plus any field above, `completed?` | reminder summary |
-| `delete` | **`reminder_id`** | `{deleted, reminderId}` |
+| `delete` | **`reminder_id`**, `dry_run?` | `{deleted, reminderId}` |
 | `complete` / `incomplete` | **`reminder_id`** | reminder summary |
 
 `create` and `update` also accept `priority` (integer 0–9; 0=none, 1=high, 5=medium, 9=low) and `flagged` (boolean). Both are surfaced in the reminder summary.
 
-When the EventKit backend is active, `create` additionally accepts `alarms` (array of seconds offsets), `geofence` (`{lat, lon, radius_meters?, proximity? "enter"|"leave", title?}`), and `source` for list disambiguation.
+When the EventKit backend is active, `create` and `update` additionally accept `alarms` (array of seconds offsets), `geofence` (`{lat, lon, radius_meters?, proximity? "enter"|"leave", title?}`), and `source` for list disambiguation.
 
 ### `mail_drafts`
 

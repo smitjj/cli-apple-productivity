@@ -23,12 +23,19 @@ The CLI emits compact JSON by default for tools and agents. Add `--pretty` when 
 ## Optional PATH Install
 
 ```sh
-mkdir -p ~/.local/bin
-ln -sf "$PWD/apple-productivity" ~/.local/bin/apple-productivity
+./install.sh
 apple-productivity doctor
 ```
 
 Make sure `~/.local/bin` is on your `PATH`.
+
+Optional shell completions:
+
+```sh
+mkdir -p ~/.zfunc ~/.local/share/bash-completion/completions
+apple-productivity completions zsh > ~/.zfunc/_apple-productivity
+apple-productivity completions bash > ~/.local/share/bash-completion/completions/apple-productivity
+```
 
 ## Docs
 

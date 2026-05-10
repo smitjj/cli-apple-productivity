@@ -233,6 +233,17 @@ class CliSubprocessTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0)
         self.assertIn("batch", completed.stdout)
 
+    def test_completions_do_not_touch_native_service(self):
+        completed = subprocess.run(
+            [sys.executable, cli.__file__, "completions", "zsh"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("#compdef apple-productivity", completed.stdout)
+        self.assertIn("archive", completed.stdout)
+
     def test_invalid_args_use_stable_usage_exit(self):
         completed = subprocess.run(
             [sys.executable, cli.__file__, "mail-messages", "get"],
