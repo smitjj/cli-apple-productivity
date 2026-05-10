@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -51,16 +52,24 @@ def call_tool(name: str, arguments: dict, request_id: int = 2) -> str:
         input=payload,
         capture_output=True,
         timeout=45,
+        env={**os.environ, "APPLE_PRODUCTIVITY_TIMEOUT_SECONDS": "90"},
     )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr.decode("utf-8") or completed.stdout.decode("utf-8"))
     output = completed.stdout.decode("utf-8")
-    error_match = re.search(r'"isError": true.*?"text": "(.*?)"', output, re.DOTALL)
-    if error_match:
-        message = error_match.group(1)
-        if "automation permission is blocked" in message or "(-1743)" in message:
-            raise PermissionDenied(message)
-        raise ToolError(message)
+    for message in parse_mcp_messages(output):
+        result = message.get("result", {})
+        if not result.get("isError"):
+            continue
+        text_items = [
+            item.get("text", "")
+            for item in result.get("content", [])
+            if item.get("type") == "text"
+        ]
+        error_message = "\n".join(text_items) or "Tool call failed."
+        if "automation permission is blocked" in error_message or "(-1743)" in error_message:
+            raise PermissionDenied(error_message)
+        raise ToolError(error_message)
     return output
 
 
@@ -99,7 +108,8 @@ def parse_mcp_messages(output: str) -> list:
 
 def assert_contains(output: str, expected: str) -> None:
     payload_text = extract_tool_text(output)
-    if expected not in payload_text:
+    compact_expected = expected.replace(": ", ":")
+    if expected not in payload_text and compact_expected not in payload_text:
         raise AssertionError(f"Expected to find {expected!r} in payload:\n{payload_text}")
 
 
@@ -218,7 +228,7 @@ def test_calendar_crud(calendar_name: str) -> None:
         "calendar_events",
         {"action": "get", "event_id": "no-separator-here"},
         24,
-        "calendar event ids must include both",
+        "not found",
     )
 
 

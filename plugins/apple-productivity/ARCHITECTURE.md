@@ -2,16 +2,18 @@
 
 ## Current shape
 
-This plugin uses one local MCP server backed by a reusable Python core:
+This plugin is CLI-first, backed by a reusable Python core and an optional stdio MCP adapter:
 
 - `apple_productivity_service.py` — `AppleProductivityService`, the core dispatch layer. Holds the persistent JXA worker, the message-id scope cache, the Envelope Index reader, and the EventKit backend probe; routes each call to the fastest available path with transparent JXA fallback.
-- `apple_productivity_mcp_server.py` — thin MCP transport (JSON-RPC frames in/out)
-- `apple_productivity_cli.py` — thin CLI transport (argparse → service)
+- `apple_productivity_registry.py` — shared action/argument registry; CLI help/flags and MCP JSON schemas derive from this so transport contracts cannot drift.
+- `apple_productivity_cli.py` — canonical CLI transport (argparse → service), including compact JSON, batch, REPL, and compound workflows.
+- `apple_productivity_mcp_server.py` — thin stdio MCP transport (JSON-RPC frames in/out) generated from the same registry.
 - `apple_productivity_mail_index.py` — read-only SQLite reader for Mail's Envelope Index, used as the fast path for `mail_messages.search`
 - `apple_productivity_eventkit.py` — PyObjC EventKit binding for Calendar and Reminders writes; retires the AppleScript-delete fallback and unlocks recurrence/alarms/geofence/source/timezone
 - `shared_validation.py` — schema and value validation reused by all transports
 - `apple_productivity_jxa.js` — Mail, Calendar, and Reminders automation via JXA. Supports both one-shot invocation (legacy) and `--server` mode (a length-prefixed JSON loop on stdin/stdout) used by the persistent worker.
-- `test_validation.py` — pure-Python unit tests
+- `test_validation.py` and `test_cli_registry.py` — pure-Python unit tests
+- `cli_smoke_test.py` — end-to-end smoke test of the CLI, including batch, REPL, Mail reads, and Calendar/Reminders CRUD on a real macOS host
 - `smoke_test.py` — end-to-end smoke test of MCP + JXA on a real macOS host
 
 The action-oriented tool model is unchanged at the surface:
@@ -22,9 +24,10 @@ The action-oriented tool model is unchanged at the surface:
 
 ## Design principles
 
-- One MCP transport layer, one CLI transport layer, both delegating to the same service core
-- Shared validation rules; identical contract regardless of transport
+- CLI-first product surface; MCP remains a compatibility adapter over the same service core
+- Shared registry and validation rules; identical low-level contract regardless of transport
 - Grouped action-oriented tools instead of one tool per verb
+- Compound CLI commands for common agent workflows that should not require many round trips
 - Native macOS automation as the platform boundary
 - Clear permission failures with actionable recovery guidance
 - Operability via env vars (`APPLE_PRODUCTIVITY_TIMEOUT_SECONDS`, `APPLE_PRODUCTIVITY_LOG`) rather than code changes
@@ -40,7 +43,7 @@ The action-oriented tool model is unchanged at the surface:
 
 `AppleProductivityService` keeps a bounded `MessageScopeCache` (256 entries, LRU-ish) keyed on Mail message id, valued with `(account_name, mailbox_name)`. Successful list/search/get responses populate it from the message summaries that JXA already returns. Subsequent targeted actions (`get`, `set-read`, `set-flag`, `delete`, `open`, `get-attachment`) inject the cached scope as `mailbox_name`/`account_name` hints when the caller didn't supply them, so JXA's `findMailMessageById` skips its global mailbox scan. `move` updates the cached scope to the new target; `delete` evicts. If a cached entry is stale (message moved out-of-band), the service evicts it and retries once with no hint — at most one extra `osascript` invocation per stale id.
 
-The cache lives for the lifetime of one service instance: one MCP server process or one CLI invocation. There is no on-disk persistence and no cross-process sharing.
+The cache lives for the lifetime of one service instance: one MCP server process, one `batch`/`repl` session, or one single CLI invocation. There is no on-disk persistence and no cross-process sharing.
 
 ## Roadmap status
 

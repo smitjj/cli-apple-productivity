@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote
 
+from apple_productivity_registry import KNOWN_TOOLS
 from shared_validation import validate_tool_arguments
 
 try:
@@ -36,19 +37,6 @@ PERSISTENT_ENV_VAR = "APPLE_PRODUCTIVITY_PERSISTENT_JXA"
 READ_ONLY_ENV_VAR = "APPLE_PRODUCTIVITY_READ_ONLY"
 MAIL_INDEX_ENV_VAR = "APPLE_PRODUCTIVITY_MAIL_INDEX"
 EVENTKIT_ENV_VAR = "APPLE_PRODUCTIVITY_EVENTKIT"
-
-KNOWN_TOOLS = {
-    "mail_accounts",
-    "mail_mailboxes",
-    "mail_messages",
-    "mail_compose",
-    "mail_drafts",
-    "mail_permissions_check",
-    "calendar_calendars",
-    "calendar_events",
-    "reminders_lists",
-    "reminders_tasks",
-}
 
 # Mail actions that target a single message by id and benefit from the scope
 # cache. `move` is excluded because the cached entry must be updated to the

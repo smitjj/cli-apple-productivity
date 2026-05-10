@@ -1,14 +1,15 @@
-# Apple Productivity MCP Server
+# Apple Productivity CLI
 
-A single local MCP server that exposes Apple Mail, Apple Calendar, and Apple Reminders on macOS to any MCP-compatible agent (Claude Code, Claude Desktop, Codex, Gemini, …). The same operations are also available from the terminal via a thin CLI wrapper.
+A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders on macOS. The same shared service core also ships a thin stdio MCP adapter for clients that prefer MCP, but the CLI is the canonical human, shell, and agent surface.
 
 ## What it supports
 
 - Apple Mail: account, mailbox, message, draft, reply, forward, move, delete, flag, read/unread, open, attachment download, bulk operations, thread retrieval, unsubscribe-link extraction
 - Apple Calendar: calendar and event read/write/delete/open with EventKit-only fields (recurrence rule, alarms, timezone, source disambiguation)
 - Apple Reminders: list and task read/write/delete/complete with priority, flagged, alarms, geofence triggers
-- One grouped action-oriented MCP surface across all three apps (10 tools total)
-- A `apple_productivity_cli.py` wrapper that calls the same service directly
+- One registry-driven CLI surface across all three apps, plus compound workflows for triage, agenda, day planning, and diagnostics
+- Batch and REPL modes that keep the service, JXA worker, EventKit probe, Mail index, and message scope cache warm
+- A thin stdio MCP adapter generated from the same command/action registry
 - A diagnostic `mail_permissions_check` tool that probes Automation, Full Disk Access, and EventKit state
 
 ## Installation
@@ -17,7 +18,7 @@ A single local MCP server that exposes Apple Mail, Apple Calendar, and Apple Rem
 
 - macOS (Catalina 10.15+ recommended; tested against modern Mail container layouts `V9`–`V12`)
 - Python 3.9+ (system Python at `/usr/bin/python3` works)
-- Optional: `pyobjc-framework-EventKit` and `pyobjc-framework-CoreLocation` for the EventKit fast path on Calendar/Reminders writes. Without them the server transparently falls back to JXA.
+- Optional: `pyobjc-framework-EventKit` and `pyobjc-framework-CoreLocation` for the EventKit fast path on Calendar/Reminders writes. Without them the service transparently falls back to JXA.
 
   ```sh
   python3 -m pip install --user pyobjc-framework-EventKit pyobjc-framework-CoreLocation
@@ -29,7 +30,13 @@ A single local MCP server that exposes Apple Mail, Apple Calendar, and Apple Rem
 git clone <this-repo> cli-apple-productivity
 ```
 
-The MCP server entry point is:
+The CLI entry point is:
+
+```
+<repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py
+```
+
+The optional MCP server entry point is:
 
 ```
 <repo>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py
@@ -49,7 +56,35 @@ Run the built-in probe to see which permissions are currently granted:
 python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-permissions-check
 ```
 
-### Connect from your MCP client
+### Use the CLI first
+
+```sh
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-accounts list
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-messages list --mailbox-name INBOX --limit 5 --pretty
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail triage --unread-only --limit 10
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py calendar agenda --days 7
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py day plan
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py doctor
+```
+
+CLI output is compact JSON by default for agent token efficiency. Use `--pretty` for human-readable JSON; `--raw` remains an alias for compact output.
+
+For multiple calls in one warm process:
+
+```sh
+printf '%s\n' \
+  '{"tool":"mail_accounts","arguments":{"action":"list"}}' \
+  '{"tool":"calendar_events","arguments":{"action":"list","date_from":"2026-05-10","date_to":"2026-05-11"}}' \
+  | python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py batch --jsonl
+```
+
+For an interactive warm session:
+
+```sh
+python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py repl
+```
+
+### Optional: connect from your MCP client
 
 Pick the client you use. In every snippet below, replace `<REPO>` with the absolute path where you placed this repo (e.g. `/absolute/path/to/cli-apple-productivity`).
 
@@ -114,13 +149,13 @@ The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-fra
 
 ### Verify
 
-After connecting, ask the agent something like *"list my Apple Mail accounts"* — that exercises the simplest read path. If it works, every other tool will. If it fails, run the CLI probe:
+Run the CLI doctor first:
 
 ```sh
 <REPO>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-permissions-check
 ```
 
-The structured output identifies which subsystem (Automation, EventKit, Full Disk Access, Mail.app process) is blocked.
+The structured output identifies which subsystem (Automation, EventKit, Full Disk Access, Mail.app process) is blocked. If using MCP, then ask the agent something like *"list my Apple Mail accounts"* to exercise the simplest read path.
 
 ## Tool surface
 
@@ -253,7 +288,18 @@ python3 …/apple_productivity_cli.py calendar-events create --calendar-name Wor
 python3 …/apple_productivity_cli.py reminders-tasks list --list-name Personal
 ```
 
-Output is pretty JSON by default; `--raw` switches to compact JSON. Errors print to stderr and exit non-zero.
+Output is compact JSON by default; `--pretty` switches to indented JSON. Errors print to stderr and use stable non-zero exit classes: `2` usage/validation, `3` permission, `4` not found, and `5` platform/automation failure.
+
+Compound commands reduce agent round trips:
+
+```sh
+python3 …/apple_productivity_cli.py mail triage --unread-only --limit 10
+python3 …/apple_productivity_cli.py mail newsletters --with-links
+python3 …/apple_productivity_cli.py mail thread 12345
+python3 …/apple_productivity_cli.py calendar agenda --days 7
+python3 …/apple_productivity_cli.py day plan
+python3 …/apple_productivity_cli.py doctor
+```
 
 ## Permissions troubleshooting
 
@@ -274,7 +320,7 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 - Inline attachment size cap: 5 MB. Larger attachments must use `save_to`.
 - Mail body cap: 50 000 characters.
 - Diagnostic log: set `APPLE_PRODUCTIVITY_LOG=/tmp/ap.log` to record one line per JXA call (tool, action, duration, ok/error).
-- Message-id scope cache: 256 most recent message ids stay in-memory per service instance (one MCP session or one CLI invocation). Repeat targeted actions on the same message — `get`, `set-read`, `set-flag`, `delete`, `open`, `get-attachment` — skip the global mailbox scan in JXA. The cache evicts on `delete` and updates on `move`; if a cached scope is stale (message moved out-of-band), the service automatically retries once with no hint.
+- Message-id scope cache: 256 most recent message ids stay in-memory per service instance (one MCP session, one `batch`/`repl` session, or one single CLI invocation). Repeat targeted actions on the same message — `get`, `set-read`, `set-flag`, `delete`, `open`, `get-attachment` — skip the global mailbox scan in JXA. The cache evicts on `delete` and updates on `move`; if a cached scope is stale (message moved out-of-band), the service automatically retries once with no hint.
 - Persistent JXA worker: a single long-lived `osascript` subprocess is reused across tool calls, eliminating the ~150–250 ms cold start. Disable with `APPLE_PRODUCTIVITY_PERSISTENT_JXA=0`; on two consecutive worker failures the service automatically falls back to one-shot for the remainder of the session.
 - Mail Envelope Index fast path: `mail_messages.search` opens `~/Library/Mail/V*/MailData/Envelope Index` read-only and answers from SQLite (~50 ms vs ~minutes for JXA scan on large mailboxes). Probed once per session; falls back silently to JXA if Full Disk Access is missing or the schema does not match. Disable with `APPLE_PRODUCTIVITY_MAIL_INDEX=0`. Result payloads include `"source": "envelope_index"` when this path is used.
 - EventKit backend: when PyObjC is installed and permission is granted, Calendar `create`/`update`/`delete` and Reminders `create`/`delete` route through EventKit instead of JXA — retiring the AppleScript-delete fallback and unlocking the new `recurrence_rule`, `timezone`, `alarms`, `geofence`, and `source` fields. Failures fall back to JXA transparently. Disable with `APPLE_PRODUCTIVITY_EVENTKIT=0`.
@@ -282,8 +328,9 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 
 ## Verification
 
-- `python3 -m unittest plugins/apple-productivity/scripts/test_validation.py` — pure-Python unit tests, no macOS apps required.
-- `python3 plugins/apple-productivity/scripts/smoke_test.py` — destructive end-to-end test of read paths plus Calendar and Reminders CRUD. Skips cleanly when Automation permission is denied. Creates and deletes a temporary Calendar event and Reminders task.
+- `python3 -m unittest discover plugins/apple-productivity/scripts -p 'test_*.py' -v` — pure-Python unit tests, no macOS apps required.
+- `python3 plugins/apple-productivity/scripts/cli_smoke_test.py` — destructive end-to-end CLI test. Covers compact/pretty output, validation exits, `batch`, `repl`, Mail reads, and Calendar/Reminders CRUD. Skips cleanly when Automation permission is denied.
+- `python3 plugins/apple-productivity/scripts/smoke_test.py` — destructive end-to-end MCP test of read paths plus Calendar and Reminders CRUD. Skips cleanly when Automation permission is denied.
 
 ## Notes
 
