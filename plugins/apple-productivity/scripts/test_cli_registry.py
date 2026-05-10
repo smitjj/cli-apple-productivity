@@ -91,6 +91,38 @@ class BatchAndOutputTests(unittest.TestCase):
         self.assertEqual(result[1]["result"]["calls"], 2)
         self.assertEqual(len(service.calls), 2)
 
+    def test_batch_preserves_call_ids_and_fail_fast(self):
+        class FakeService:
+            def dispatch(self, tool, args):
+                if tool == "bad":
+                    raise RuntimeError("boom")
+                return {"tool": tool}
+
+        namespace = type("Namespace", (), {"path": "-", "jsonl": False, "fail_fast": True})()
+        with mock.patch.object(sys, "stdin", io.StringIO(
+            '{"id":"first","tool":"mail_accounts","arguments":{"action":"list"}}\n'
+            '{"id":"bad-call","tool":"bad","arguments":{}}\n'
+            '{"id":"never","tool":"mail_mailboxes","arguments":{"action":"list"}}\n'
+        )):
+            result = cli.run_batch(namespace, FakeService())
+        self.assertEqual([item["id"] for item in result], ["first", "bad-call"])
+        self.assertFalse(result[1]["ok"])
+
+    def test_repl_jsonl_no_prompt_envelopes_results(self):
+        class FakeService:
+            def dispatch(self, tool, args):
+                return {"tool": tool, "args": args}
+
+        namespace = type("Namespace", (), {"no_prompt": True, "jsonl": True})()
+        with mock.patch.object(sys, "stdin", io.StringIO(
+            '{"tool":"mail_accounts","arguments":{"action":"list"}}\n'
+            "exit\n"
+        )), mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            self.assertEqual(cli.run_repl(namespace, FakeService()), cli.EXIT_OK)
+        lines = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
+        self.assertEqual(lines[0]["ok"], True)
+        self.assertEqual(lines[0]["result"]["tool"], "mail_accounts")
+
     def test_compact_json_has_no_pretty_whitespace(self):
         with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
             cli.emit_json({"a": 1, "b": [2]}, compact=True)

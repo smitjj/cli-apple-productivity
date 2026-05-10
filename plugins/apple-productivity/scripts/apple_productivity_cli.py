@@ -65,10 +65,13 @@ def build_parser() -> argparse.ArgumentParser:
     batch.set_defaults(kind="batch")
     batch.add_argument("path", nargs="?", default="-", help="JSON array/JSONL file path, or '-' for stdin.")
     batch.add_argument("--jsonl", action="store_true", help="Emit one response per line.")
+    batch.add_argument("--fail-fast", action="store_true", help="Stop after the first failed call.")
 
     repl = sub.add_parser("repl", help="Run an interactive JSON-call session with one warm service process.")
     _add_runtime_flags(repl)
     repl.set_defaults(kind="repl")
+    repl.add_argument("--jsonl", action="store_true", help="Emit {ok,result|error} envelopes, one per response.")
+    repl.add_argument("--no-prompt", action="store_true", help="Suppress the interactive prompt.")
 
     mail = sub.add_parser("mail", help="Compound Mail workflows.")
     mail_sub = mail.add_subparsers(dest="mail_command", required=True)
@@ -293,25 +296,34 @@ def normalize_call(call: dict) -> tuple[str, dict]:
     return tool, args
 
 
+def call_label(call: dict, index: int) -> Any:
+    return call.get("id", call.get("call_id", index)) if isinstance(call, dict) else index
+
+
 def run_batch(namespace: argparse.Namespace, service: AppleProductivityService) -> Any:
     text = sys.stdin.read() if namespace.path == "-" else open(namespace.path, "r", encoding="utf-8").read()
     responses = []
     for index, call in enumerate(parse_calls(text), start=1):
+        label = call_label(call, index)
         try:
             tool, args = normalize_call(call)
-            responses.append({"index": index, "ok": True, "result": service.dispatch(tool, args)})
+            responses.append({"index": index, "id": label, "ok": True, "result": service.dispatch(tool, args)})
         except Exception as exc:
-            responses.append({"index": index, "ok": False, "error": str(exc), "exitCode": classify_error(exc)})
+            responses.append({"index": index, "id": label, "ok": False, "error": str(exc), "exitCode": classify_error(exc)})
+            if getattr(namespace, "fail_fast", False):
+                break
     return responses
 
 
 def run_repl(namespace: argparse.Namespace, service: AppleProductivityService) -> int:
-    print("apple-productivity repl: enter JSON calls, shell-style CLI commands, help, or exit.", file=sys.stderr)
+    if not namespace.no_prompt:
+        print("apple-productivity repl: enter JSON calls, shell-style CLI commands, help, or exit.", file=sys.stderr)
     parser = build_parser()
     while True:
-        try:
-            line = input("apple-productivity> ")
-        except EOFError:
+        if not namespace.no_prompt:
+            print("apple-productivity> ", end="", file=sys.stderr, flush=True)
+        line = sys.stdin.readline()
+        if not line:
             print("", file=sys.stderr)
             return EXIT_OK
         line = line.strip()
@@ -336,7 +348,10 @@ def run_repl(namespace: argparse.Namespace, service: AppleProductivityService) -
                     result = run_compound(repl_args, service)
                 else:
                     raise RuntimeError("Nested batch/repl commands are not supported inside repl.")
-            print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+            if namespace.jsonl:
+                print(json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":")))
+            else:
+                print(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
         except SystemExit:
             print(json.dumps({"ok": False, "error": "invalid repl command"}, separators=(",", ":")))
         except Exception as exc:
