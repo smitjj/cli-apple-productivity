@@ -9,7 +9,7 @@
   },
   "homepage": "https://github.com/smitjj/cli-apple-productivity",
   "repository": "https://github.com/smitjj/cli-apple-productivity",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "mail",
     "apple-mail",

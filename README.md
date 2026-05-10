@@ -12,6 +12,12 @@ A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders 
 - A thin stdio MCP adapter generated from the same command/action registry
 - A diagnostic `mail_permissions_check` tool that probes Automation, Full Disk Access, and EventKit state
 
+## Safety notice
+
+This project controls local Apple apps on your Mac. It can read personal Mail, Calendar, and Reminders data, and write operations can send mail, move or delete messages, create or delete calendar events, and create or complete reminders.
+
+Use it at your own risk. Review commands before running them, prefer `--dry-run` for destructive operations, and set `APPLE_PRODUCTIVITY_READ_ONLY=1` when you want read-only behavior. The software is provided as-is under the Apache-2.0 license, without warranty.
+
 ## Installation
 
 ### Prerequisites
@@ -382,4 +388,6 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 ## Notes
 
 - Apple Mail automation is ultimately limited by what Mail exposes to AppleScript/JXA.
+- Licensed under the [Apache License 2.0](LICENSE). Copyright 2026 smitjj.
+- Owner/maintainer: [smitjj](https://github.com/smitjj).
 - The architectural direction is documented in [plugins/apple-productivity/ARCHITECTURE.md](plugins/apple-productivity/ARCHITECTURE.md).
