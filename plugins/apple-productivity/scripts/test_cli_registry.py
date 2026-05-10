@@ -129,6 +129,63 @@ class BatchAndOutputTests(unittest.TestCase):
         self.assertEqual(stdout.getvalue().strip(), '{"a":1,"b":[2]}')
 
 
+class CompoundSummaryTests(unittest.TestCase):
+    def test_mail_summary_counts_triage_signals(self):
+        summary = cli.summarize_mail_messages(
+            {
+                "messages": [
+                    {"read": False, "flagged": True, "attachments": [{"name": "x"}], "dateReceived": "2026-01-02"},
+                    {"read": True, "flagged": False, "dateReceived": "2026-01-01"},
+                ]
+            }
+        )
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["unread"], 1)
+        self.assertEqual(summary["flagged"], 1)
+        self.assertEqual(summary["withAttachments"], 1)
+        self.assertEqual(summary["oldestDateReceived"], "2026-01-01")
+
+    def test_agenda_summary_detects_conflicts(self):
+        summary = cli.summarize_agenda(
+            {
+                "events": [
+                    {
+                        "id": "a",
+                        "summary": "A",
+                        "startDate": "2026-01-01T09:00:00Z",
+                        "endDate": "2026-01-01T10:00:00Z",
+                        "allDay": False,
+                    },
+                    {
+                        "id": "b",
+                        "summary": "B",
+                        "startDate": "2026-01-01T09:30:00Z",
+                        "endDate": "2026-01-01T11:00:00Z",
+                        "allDay": False,
+                    },
+                ]
+            }
+        )
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["conflictCount"], 1)
+        self.assertEqual(summary["conflicts"][0]["leftId"], "a")
+
+    def test_day_plan_summary_counts_due_reminders(self):
+        summary = cli.summarize_day_plan(
+            "2026-01-02",
+            {"events": []},
+            {
+                "reminders": [
+                    {"dueDate": "2026-01-01T09:00:00Z", "completed": False},
+                    {"dueDate": "2026-01-02T09:00:00Z", "completed": False, "flagged": True},
+                ]
+            },
+        )
+        self.assertEqual(summary["reminders"]["overdue"], 1)
+        self.assertEqual(summary["reminders"]["dueToday"], 1)
+        self.assertEqual(summary["reminders"]["flagged"], 1)
+
+
 class CliSubprocessTests(unittest.TestCase):
     def test_help_exits_zero(self):
         completed = subprocess.run(

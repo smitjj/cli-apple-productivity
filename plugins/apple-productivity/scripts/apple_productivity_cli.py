@@ -222,14 +222,18 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
             if namespace.flagged_only:
                 args["flagged_only"] = True
             result = service.dispatch("mail_messages", args)
-        return {"workflow": "mail.triage", "result": result}
+        return {"workflow": "mail.triage", "summary": summarize_mail_messages(result), "result": result}
     if compound == "mail-newsletters":
         search = service.dispatch(
             "mail_messages",
             {"action": "search", "query": namespace.query, "limit": namespace.limit},
         )
         if not namespace.with_links:
-            return {"workflow": "mail.newsletters", "candidates": search}
+            return {
+                "workflow": "mail.newsletters",
+                "summary": summarize_mail_messages(search),
+                "candidates": search,
+            }
         enriched = []
         for message in search.get("messages", []):
             item = {"message": message}
@@ -243,13 +247,19 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
                 except Exception as exc:
                     item["unsubscribeError"] = str(exc)
             enriched.append(item)
-        return {"workflow": "mail.newsletters", "count": len(enriched), "candidates": enriched}
+        return {
+            "workflow": "mail.newsletters",
+            "summary": summarize_newsletters(enriched),
+            "count": len(enriched),
+            "candidates": enriched,
+        }
     if compound == "calendar-agenda":
         start = namespace.date_from or date.today().isoformat()
         end = namespace.date_to or (date.fromisoformat(start) + timedelta(days=max(1, namespace.days))).isoformat()
         args = {"action": "list", "date_from": start, "date_to": end, "limit": namespace.limit}
         _maybe(args, "calendar_name", namespace.calendar_name)
-        return {"workflow": "calendar.agenda", "result": service.dispatch("calendar_events", args)}
+        result = service.dispatch("calendar_events", args)
+        return {"workflow": "calendar.agenda", "summary": summarize_agenda(result), "result": result}
     if compound == "day-plan":
         target = namespace.date or date.today().isoformat()
         next_day = (date.fromisoformat(target) + timedelta(days=1)).isoformat()
@@ -257,13 +267,134 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
         _maybe(event_args, "calendar_name", namespace.calendar_name)
         reminder_args = {"action": "list", "show_completed": False, "limit": namespace.limit}
         _maybe(reminder_args, "list_name", namespace.list_name)
+        calendar_result = service.dispatch("calendar_events", event_args)
+        reminders_result = service.dispatch("reminders_tasks", reminder_args)
         return {
             "workflow": "day.plan",
             "date": target,
-            "calendar": service.dispatch("calendar_events", event_args),
-            "reminders": service.dispatch("reminders_tasks", reminder_args),
+            "summary": summarize_day_plan(target, calendar_result, reminders_result),
+            "calendar": calendar_result,
+            "reminders": reminders_result,
         }
     raise RuntimeError(f"Unknown compound command: {compound}")
+
+
+def summarize_mail_messages(result: Any) -> dict:
+    messages = extract_messages(result)
+    unread = sum(1 for item in messages if item.get("read") is False)
+    flagged = sum(1 for item in messages if item.get("flagged") is True)
+    with_attachments = sum(1 for item in messages if item.get("attachments"))
+    return {
+        "count": len(messages),
+        "unread": unread,
+        "flagged": flagged,
+        "withAttachments": with_attachments,
+        "oldestDateReceived": min_compact(item.get("dateReceived") for item in messages),
+        "newestDateReceived": max_compact(item.get("dateReceived") for item in messages),
+    }
+
+
+def summarize_newsletters(candidates: list[dict]) -> dict:
+    found = 0
+    one_click = 0
+    for item in candidates:
+        unsubscribe = item.get("unsubscribe") or {}
+        if unsubscribe.get("found"):
+            found += 1
+        if unsubscribe.get("oneClickPost"):
+            one_click += 1
+    return {"count": len(candidates), "withUnsubscribe": found, "withOneClickPost": one_click}
+
+
+def summarize_agenda(result: Any) -> dict:
+    events = extract_events(result)
+    conflicts = find_conflicts(events)
+    return {
+        "count": len(events),
+        "allDay": sum(1 for item in events if item.get("allDay") is True),
+        "timed": sum(1 for item in events if item.get("allDay") is not True),
+        "conflicts": conflicts,
+        "conflictCount": len(conflicts),
+    }
+
+
+def summarize_day_plan(target_date: str, calendar_result: Any, reminders_result: Any) -> dict:
+    reminders = extract_reminders(reminders_result)
+    overdue = [
+        item for item in reminders
+        if item.get("dueDate") and item.get("dueDate")[:10] < target_date and item.get("completed") is not True
+    ]
+    due_today = [
+        item for item in reminders
+        if item.get("dueDate") and item.get("dueDate")[:10] == target_date and item.get("completed") is not True
+    ]
+    return {
+        "calendar": summarize_agenda(calendar_result),
+        "reminders": {
+            "count": len(reminders),
+            "overdue": len(overdue),
+            "dueToday": len(due_today),
+            "flagged": sum(1 for item in reminders if item.get("flagged") is True),
+        },
+    }
+
+
+def extract_messages(value: Any) -> list[dict]:
+    if isinstance(value, dict):
+        messages = value.get("messages")
+        if isinstance(messages, list):
+            return [item for item in messages if isinstance(item, dict)]
+    return []
+
+
+def extract_events(value: Any) -> list[dict]:
+    if isinstance(value, dict):
+        events = value.get("events")
+        if isinstance(events, list):
+            return [item for item in events if isinstance(item, dict)]
+    return []
+
+
+def extract_reminders(value: Any) -> list[dict]:
+    if isinstance(value, dict):
+        reminders = value.get("reminders")
+        if isinstance(reminders, list):
+            return [item for item in reminders if isinstance(item, dict)]
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def min_compact(values: Iterable[Any]) -> Any:
+    candidates = [value for value in values if value]
+    return min(candidates) if candidates else None
+
+
+def max_compact(values: Iterable[Any]) -> Any:
+    candidates = [value for value in values if value]
+    return max(candidates) if candidates else None
+
+
+def find_conflicts(events: list[dict]) -> list[dict]:
+    timed = [
+        item for item in events
+        if item.get("allDay") is not True and item.get("startDate") and item.get("endDate")
+    ]
+    timed.sort(key=lambda item: item.get("startDate") or "")
+    conflicts = []
+    for left, right in zip(timed, timed[1:]):
+        if (left.get("endDate") or "") > (right.get("startDate") or ""):
+            conflicts.append(
+                {
+                    "leftId": left.get("id"),
+                    "rightId": right.get("id"),
+                    "leftSummary": left.get("summary"),
+                    "rightSummary": right.get("summary"),
+                    "overlapStart": right.get("startDate"),
+                    "overlapEnd": min(left.get("endDate"), right.get("endDate")),
+                }
+            )
+    return conflicts
 
 
 def parse_calls(text: str) -> list[dict]:
