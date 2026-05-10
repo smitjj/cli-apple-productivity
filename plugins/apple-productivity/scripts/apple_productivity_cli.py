@@ -19,6 +19,12 @@ from apple_productivity_registry import ArgumentSpec, TOOL_SPECS, ToolSpec
 from apple_productivity_service import AppleProductivityService
 
 
+PROJECT_NAME = "Apple Productivity CLI"
+PROJECT_VERSION = "0.5.0"
+PROJECT_REPOSITORY = "https://github.com/smitjj/cli-apple-productivity"
+PROJECT_LICENSE = "Apache-2.0"
+PROJECT_OWNER = "smitjj"
+
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_PERMISSION = 3
@@ -42,6 +48,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="apple-productivity",
         description="CLI for Apple Mail, Calendar, and Reminders.",
+        epilog=(
+            f"{PROJECT_NAME} {PROJECT_VERSION} | {PROJECT_LICENSE} | "
+            f"{PROJECT_REPOSITORY}"
+        ),
     )
     parser.add_argument("--raw", action="store_true", help="Alias for --compact.")
     parser.add_argument("--compact", action="store_true", help="Emit compact JSON.")
@@ -152,6 +162,10 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Run permission and platform diagnostics.")
     _add_runtime_flags(doctor)
     doctor.set_defaults(kind="compound", compound="doctor")
+
+    about = sub.add_parser("about", help="Print project, repository, and license metadata.")
+    _add_runtime_flags(about)
+    about.set_defaults(kind="about")
 
     completions = sub.add_parser("completions", help="Print shell completion script.")
     completions.set_defaults(kind="completions")
@@ -571,11 +585,31 @@ def emit_json(value: Any, *, compact: bool) -> None:
         print(json.dumps(value, indent=2, ensure_ascii=False))
 
 
+def project_metadata() -> dict:
+    return {
+        "name": PROJECT_NAME,
+        "version": PROJECT_VERSION,
+        "owner": PROJECT_OWNER,
+        "repository": PROJECT_REPOSITORY,
+        "license": PROJECT_LICENSE,
+        "licenseUrl": f"{PROJECT_REPOSITORY}/blob/main/LICENSE",
+        "riskNotice": (
+            "Runs local macOS automation against Apple Mail, Calendar, and Reminders. "
+            "Use at your own risk; prefer --dry-run or APPLE_PRODUCTIVITY_READ_ONLY=1 "
+            "for safety-sensitive workflows."
+        ),
+    }
+
+
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = build_parser()
     namespace = parser.parse_args(argv)
     if namespace.kind == "completions":
         print_completion(namespace.shell)
+        return EXIT_OK
+    if namespace.kind == "about":
+        compact = namespace.compact or namespace.raw or not namespace.pretty
+        emit_json(project_metadata(), compact=compact)
         return EXIT_OK
     service = AppleProductivityService(timeout_seconds=namespace.timeout)
 
@@ -614,6 +648,7 @@ def print_completion(shell: str) -> None:
             "mail",
             "calendar",
             "day",
+            "about",
             *[spec.cli_name for spec in TOOL_SPECS],
         ]
     )

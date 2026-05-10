@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 import apple_productivity_cli as cli
+import apple_productivity_mcp_server as mcp_server
 from apple_productivity_registry import TOOL_SPECS, mcp_tools
 from shared_validation import validate_action, validate_tool_arguments
 
@@ -128,6 +129,13 @@ class BatchAndOutputTests(unittest.TestCase):
             cli.emit_json({"a": 1, "b": [2]}, compact=True)
         self.assertEqual(stdout.getvalue().strip(), '{"a":1,"b":[2]}')
 
+    def test_project_metadata_includes_public_release_fields(self):
+        metadata = cli.project_metadata()
+        self.assertEqual(metadata["owner"], "smitjj")
+        self.assertEqual(metadata["license"], "Apache-2.0")
+        self.assertEqual(metadata["repository"], "https://github.com/smitjj/cli-apple-productivity")
+        self.assertIn("risk", metadata["riskNotice"].lower())
+
 
 class CompoundSummaryTests(unittest.TestCase):
     def test_mail_summary_counts_triage_signals(self):
@@ -232,6 +240,20 @@ class CliSubprocessTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertIn("batch", completed.stdout)
+        self.assertIn("Apache-2.0", completed.stdout)
+        self.assertIn("github.com/smitjj/cli-apple-productivity", completed.stdout.replace("\n", ""))
+
+    def test_about_exposes_repo_and_license(self):
+        completed = subprocess.run(
+            [sys.executable, cli.__file__, "about"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(completed.returncode, 0)
+        payload = json.loads(completed.stdout)
+        self.assertEqual(payload["license"], "Apache-2.0")
+        self.assertEqual(payload["repository"], "https://github.com/smitjj/cli-apple-productivity")
 
     def test_completions_do_not_touch_native_service(self):
         completed = subprocess.run(
@@ -298,6 +320,18 @@ class CliSubprocessTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, cli.EXIT_USAGE)
         self.assertIn("requires", completed.stderr)
+
+
+class McpMetadataTests(unittest.TestCase):
+    def test_initialize_exposes_public_release_metadata(self):
+        with mock.patch.object(mcp_server, "write_message") as write_message:
+            mcp_server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+        response = write_message.call_args.args[0]
+        server_info = response["result"]["serverInfo"]
+        self.assertEqual(server_info["owner"], "smitjj")
+        self.assertEqual(server_info["license"], "Apache-2.0")
+        self.assertEqual(server_info["repository"], "https://github.com/smitjj/cli-apple-productivity")
+        self.assertIn("risk", server_info["riskNotice"].lower())
 
 
 if __name__ == "__main__":

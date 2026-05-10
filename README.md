@@ -41,6 +41,7 @@ From the repo root, use the short executable:
 
 ```sh
 ./apple-productivity --help
+./apple-productivity about --pretty
 ```
 
 Optional: put the CLI on your `PATH`:
@@ -96,6 +97,8 @@ Run the built-in probe to see which permissions are currently granted:
 ```
 
 CLI output is compact JSON by default for agent token efficiency. Use `--pretty` for human-readable JSON; `--raw` remains an alias for compact output.
+
+`./apple-productivity about` returns machine-readable project metadata including the repository, owner, Apache-2.0 license, and safety notice.
 
 For multiple calls in one warm process:
 
@@ -195,6 +198,8 @@ Edit `~/.gemini/settings.json`:
 #### Anything else MCP-compliant
 
 The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-framed messages (protocol version `2024-11-05`). Any client that follows the spec works — point its `mcpServers` block at `python3 /absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py`.
+
+The MCP `initialize` response includes `serverInfo.repository`, `serverInfo.license`, `serverInfo.owner`, and a short risk notice.
 
 ### Verify
 
@@ -332,6 +337,7 @@ The CLI wraps the same service that backs the MCP server. No JSON-RPC, no subpro
 
 ```sh
 ./apple-productivity mail-accounts list
+./apple-productivity about --pretty
 ./apple-productivity mail-mailboxes list --account-name iCloud --include-counts
 ./apple-productivity mail-messages list --mailbox-name INBOX --limit 5
 ./apple-productivity mail-messages search --query invoice --since 2026-01-01
