@@ -48,6 +48,8 @@ SCOPED_MAIL_ACTIONS = {
     "set-flag",
     "open",
     "get-attachment",
+    "get-thread",
+    "get-unsubscribe-link",
 }
 
 
@@ -408,11 +410,6 @@ class AppleProductivityService:
         reader = self._get_mail_index()
         if reader is None:
             return None
-        # The index does not know about JXA's `mailbox_name`/`account_name`
-        # scoping (they map to mailbox ROWIDs we don't translate yet). If the
-        # caller pinned a mailbox, JXA's path is more correct.
-        if args.get("mailbox_name") or args.get("account_name"):
-            return None
         since_epoch = None
         since = args.get("since")
         if since:
@@ -422,11 +419,15 @@ class AppleProductivityService:
         try:
             rows = reader.search_messages(
                 query=args.get("query"),
+                mailbox_name=args.get("mailbox_name"),
+                account_name=args.get("account_name"),
                 from_address=args.get("from_address"),
                 to_address=args.get("to_address"),
                 subject_contains=args.get("subject_contains"),
                 since_epoch=since_epoch,
                 limit=int(args.get("limit") or 25),
+                unread_only=bool(args.get("unread_only")),
+                flagged_only=bool(args.get("flagged_only")),
             )
         except MailIndexUnavailable as exc:
             if self.logger:
@@ -444,6 +445,54 @@ class AppleProductivityService:
             "source": "envelope_index",
         }
 
+    def _try_list_via_index(self, args: dict):
+        reader = self._get_mail_index()
+        if reader is None:
+            return None
+        try:
+            payload = reader.list_messages(
+                mailbox_name=args["mailbox_name"],
+                account_name=args.get("account_name"),
+                limit=int(args.get("limit") or 25),
+                unread_only=bool(args.get("unread_only")),
+                flagged_only=bool(args.get("flagged_only")),
+            )
+        except MailIndexUnavailable as exc:
+            if self.logger:
+                self.logger.info("Mail index list fell back to JXA: %s", exc)
+            return None
+        except Exception as exc:
+            if self.logger:
+                self.logger.info("Mail index list raised, falling back: %s", exc)
+            return None
+        messages = [_row_to_summary(row) for row in payload["messages"]]
+        return {
+            "mailbox": payload["mailbox"],
+            "count": len(messages),
+            "messages": messages,
+            "source": "envelope_index",
+        }
+
+    def _try_thread_via_index(self, args: dict):
+        reader = self._get_mail_index()
+        if reader is None:
+            return None
+        try:
+            rows = reader.list_thread_by_rowid(
+                int(args["message_id"]),
+                limit=int(args.get("limit") or 100),
+            )
+        except MailIndexUnavailable as exc:
+            if self.logger:
+                self.logger.info("Mail index thread fell back to JXA: %s", exc)
+            return None
+        except Exception as exc:
+            if self.logger:
+                self.logger.info("Mail index thread raised, falling back: %s", exc)
+            return None
+        messages = [_row_to_summary(row) for row in rows]
+        return {"count": len(messages), "messages": messages, "source": "envelope_index"}
+
     def _dispatch_mail_messages(self, args: dict) -> Any:
         action = args.get("action")
         message_id = args.get("message_id")
@@ -452,6 +501,14 @@ class AppleProductivityService:
         if action == "search":
             indexed = self._try_search_via_index(args)
             if indexed is not None:
+                return indexed
+        elif action == "list":
+            indexed = self._try_list_via_index(args)
+            if indexed is not None:
+                return indexed
+        elif action == "get-thread" and not args.get("mailbox_name"):
+            indexed = self._try_thread_via_index(args)
+            if indexed is not None and indexed.get("count", 0) > 0:
                 return indexed
 
         if (

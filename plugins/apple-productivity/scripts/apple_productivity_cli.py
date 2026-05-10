@@ -193,17 +193,19 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
         _maybe(args, "limit", namespace.limit)
         return service.dispatch("mail_messages", args)
     if compound == "mail-triage":
-        if namespace.since and not namespace.query:
-            raise RuntimeError("mail triage --since requires --query; mailbox list does not support date filtering.")
         if namespace.query or namespace.since:
             args = {
                 "action": "search",
-                "query": namespace.query or "",
                 "limit": namespace.limit,
             }
+            _maybe(args, "query", namespace.query)
             _maybe(args, "since", namespace.since)
             _maybe(args, "account_name", namespace.account_name)
             _maybe(args, "mailbox_name", namespace.mailbox_name)
+            if namespace.unread_only:
+                args["unread_only"] = True
+            if namespace.flagged_only:
+                args["flagged_only"] = True
             result = service.dispatch("mail_messages", args)
         else:
             args = {

@@ -69,6 +69,7 @@ class MailIndexReader:
         self.logger = logger
         self._conn: Optional[sqlite3.Connection] = None
         self._messages_columns: set = set()
+        self._table_names: set = set()
 
     # ------------------------------------------------------------------
     # Construction / availability
@@ -116,8 +117,8 @@ class MailIndexReader:
             "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
             "('messages','subjects','addresses','recipients','mailboxes','attachments')"
         ).fetchall()
-        names = {row["name"] for row in rows}
-        if "messages" not in names:
+        self._table_names = {row["name"] for row in rows}
+        if "messages" not in self._table_names:
             raise MailIndexUnavailable("messages table not found")
 
         col_rows = self._conn.execute("PRAGMA table_info('messages')").fetchall()
@@ -141,6 +142,9 @@ class MailIndexReader:
     def has_column(self, name: str) -> bool:
         return name in self._messages_columns
 
+    def has_table(self, name: str) -> bool:
+        return name in self._table_names
+
     # ------------------------------------------------------------------
     # Queries
     # ------------------------------------------------------------------
@@ -148,6 +152,8 @@ class MailIndexReader:
     def search_messages(
         self,
         query: Optional[str] = None,
+        mailbox_name: Optional[str] = None,
+        account_name: Optional[str] = None,
         from_address: Optional[str] = None,
         to_address: Optional[str] = None,
         subject_contains: Optional[str] = None,
@@ -191,6 +197,10 @@ class MailIndexReader:
             clauses.append("m.read = 0")
         if flagged_only:
             clauses.append("m.flagged = 1")
+        mailbox_filter = self._build_mailbox_filter(mailbox_name, account_name)
+        if mailbox_filter is not None:
+            clauses.append(mailbox_filter[0])
+            params.extend(mailbox_filter[1])
 
         # Note: to_address requires joining recipients/addresses; only enable
         # if both tables are present. Falls back to JXA-side filtering otherwise.
@@ -228,6 +238,27 @@ class MailIndexReader:
             raise MailIndexUnavailable(f"search query failed: {exc}") from exc
         return [dict(row) for row in rows]
 
+    def list_messages(
+        self,
+        mailbox_name: str,
+        account_name: Optional[str] = None,
+        limit: int = 25,
+        unread_only: bool = False,
+        flagged_only: bool = False,
+    ) -> dict:
+        rows = self.search_messages(
+            mailbox_name=mailbox_name,
+            account_name=account_name,
+            limit=limit,
+            unread_only=unread_only,
+            flagged_only=flagged_only,
+        )
+        return {
+            "mailbox": {"name": mailbox_name, "path": mailbox_name, "account": account_name},
+            "count": len(rows),
+            "messages": rows,
+        }
+
     def list_thread(self, message_id_header: str, limit: int = 100) -> list:
         """Return all messages in the same conversation as the given Message-ID
         header. Requires the optional ``conversation_id`` column."""
@@ -255,6 +286,22 @@ class MailIndexReader:
             raise MailIndexUnavailable(f"thread fetch failed: {exc}") from exc
         return [dict(row) for row in rows]
 
+    def list_thread_by_rowid(self, rowid: int, limit: int = 100) -> list:
+        """Return all messages in the same conversation as a Mail message rowid."""
+        assert self._conn is not None
+        if not self.has_column("conversation_id"):
+            raise MailIndexUnavailable("messages.conversation_id not present in this schema")
+        try:
+            seed = self._conn.execute(
+                "SELECT conversation_id FROM messages WHERE ROWID = ? LIMIT 1",
+                (rowid,),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise MailIndexUnavailable(f"thread rowid lookup failed: {exc}") from exc
+        if not seed or seed["conversation_id"] is None:
+            return []
+        return self._list_conversation(seed["conversation_id"], limit)
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -263,11 +310,7 @@ class MailIndexReader:
         """Return (clause, params) for filtering by recipient address, or None
         if the recipients/addresses tables are not present."""
         assert self._conn is not None
-        rows = self._conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('recipients','addresses')"
-        ).fetchall()
-        names = {row["name"] for row in rows}
-        if not {"recipients", "addresses"}.issubset(names):
+        if not {"recipients", "addresses"}.issubset(self._table_names):
             return None
         # Schemas vary: `recipients` typically links message_id (FK to
         # messages.ROWID) to address_id (FK to addresses.ROWID). We probe
@@ -285,6 +328,63 @@ class MailIndexReader:
             f"WHERE r.{msg_fk} = m.ROWID AND LOWER(a.{addr_value_col}) LIKE ?)"
         )
         return clause, [f"%{to_address.lower()}%"]
+
+    def _build_mailbox_filter(self, mailbox_name: Optional[str], account_name: Optional[str]):
+        if not mailbox_name and not account_name:
+            return None
+        if not self.has_table("mailboxes"):
+            raise MailIndexUnavailable("mailbox/account filters require mailboxes table")
+        assert self._conn is not None
+        mailbox_cols = {row["name"] for row in self._conn.execute("PRAGMA table_info('mailboxes')").fetchall()}
+        name_cols = [name for name in ("name", "display_name", "url", "path") if name in mailbox_cols]
+        account_cols = [name for name in ("account", "account_name", "source", "store") if name in mailbox_cols]
+        if mailbox_name and not name_cols:
+            raise MailIndexUnavailable("mailboxes table has no usable name column")
+
+        clauses = []
+        params: list = []
+        if mailbox_name:
+            comparisons = []
+            lowered = mailbox_name.lower()
+            for col in name_cols:
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) = ?")
+                params.append(lowered)
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
+                params.append(f"%/{lowered}")
+            clauses.append("(" + " OR ".join(comparisons) + ")")
+        if account_name and account_cols:
+            comparisons = []
+            lowered = account_name.lower()
+            for col in account_cols:
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) = ?")
+                params.append(lowered)
+            clauses.append("(" + " OR ".join(comparisons) + ")")
+        elif account_name:
+            raise MailIndexUnavailable("mailboxes table has no usable account column")
+        return (
+            "EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.ROWID = m.mailbox AND "
+            + " AND ".join(clauses)
+            + ")",
+            params,
+        )
+
+    def _list_conversation(self, conversation_id, limit: int) -> list:
+        assert self._conn is not None
+        select_parts = [
+            "SELECT ROWID AS rowid, message_id, subject, sender, date_received, "
+            "date_sent, mailbox AS mailbox_rowid, read, flagged"
+        ]
+        if self.has_column("snippet"):
+            select_parts.append(", snippet")
+        select_parts.append(", conversation_id FROM messages WHERE conversation_id = ? ORDER BY date_received ASC LIMIT ?")
+        try:
+            rows = self._conn.execute(
+                "".join(select_parts),
+                (conversation_id, int(max(1, min(limit, 500)))),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise MailIndexUnavailable(f"thread fetch failed: {exc}") from exc
+        return [dict(row) for row in rows]
 
 
 def _version_key(path: str) -> tuple:

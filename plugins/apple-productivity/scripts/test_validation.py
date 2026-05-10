@@ -200,6 +200,20 @@ class ActionEnumTests(unittest.TestCase):
             },
         )
 
+    def test_search_accepts_filter_only_query(self):
+        validate_tool_arguments(
+            "mail_messages",
+            {
+                "action": "search",
+                "mailbox_name": "INBOX",
+                "unread_only": True,
+            },
+        )
+
+    def test_search_rejects_no_query_or_filter(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments("mail_messages", {"action": "search"})
+
 
 class IntegerValidationTests(unittest.TestCase):
     def test_rejects_boolean_for_integer(self):

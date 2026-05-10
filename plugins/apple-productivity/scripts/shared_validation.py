@@ -122,7 +122,7 @@ def validate_mail_messages(arguments: dict) -> None:
         validate_boolean(arguments, "include_source")
         return
     if action == "search":
-        validate_string(arguments, "query", required=True, max_length=500)
+        validate_string(arguments, "query", max_length=500)
         validate_string(arguments, "account_name")
         validate_string(arguments, "mailbox_name")
         validate_string(arguments, "from_address", max_length=500)
@@ -130,6 +130,23 @@ def validate_mail_messages(arguments: dict) -> None:
         validate_string(arguments, "subject_contains", max_length=500)
         validate_date(arguments, "since")
         validate_integer(arguments, "limit")
+        validate_boolean(arguments, "unread_only")
+        validate_boolean(arguments, "flagged_only")
+        if not any(
+            arguments.get(name)
+            for name in (
+                "query",
+                "from_address",
+                "to_address",
+                "subject_contains",
+                "since",
+                "unread_only",
+                "flagged_only",
+                "mailbox_name",
+                "account_name",
+            )
+        ):
+            raise RuntimeError("search requires at least one query or filter.")
         return
     if action == "move":
         validate_integer(arguments, "message_id", required=True)

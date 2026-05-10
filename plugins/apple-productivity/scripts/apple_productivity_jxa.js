@@ -286,6 +286,8 @@ function searchMailMessages(input) {
   const subjectFilter = normalizeLower(input.subject_contains);
   const sinceBound = input.since ? parseDateInput(input.since) : null;
   const limit = clampLimit(input.limit, 25);
+  const unreadOnly = Boolean(input.unread_only);
+  const flaggedOnly = Boolean(input.flagged_only);
   const mailboxes = input.mailbox_name
     ? [resolveMailMailbox(input.mailbox_name, input.account_name)]
     : getSearchMailboxes(input.account_name);
@@ -298,6 +300,8 @@ function searchMailMessages(input) {
       const id = safeCall(function () { return message.id(); }, null);
       if (id === null || seen[id]) continue;
       if (!matchesMailQuery(message, query)) continue;
+      if (unreadOnly && safeCall(function () { return message.readStatus(); }, true)) continue;
+      if (flaggedOnly && !safeCall(function () { return message.flaggedStatus(); }, false)) continue;
       if (fromFilter) {
         const sender = String(safeCall(function () { return message.sender(); }, "") || "").toLowerCase();
         if (sender.indexOf(fromFilter) === -1) continue;
