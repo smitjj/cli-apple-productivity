@@ -185,6 +185,37 @@ class CompoundSummaryTests(unittest.TestCase):
         self.assertEqual(summary["reminders"]["dueToday"], 1)
         self.assertEqual(summary["reminders"]["flagged"], 1)
 
+    def test_mail_archive_compound_maps_to_move_action(self):
+        class FakeService:
+            def __init__(self):
+                self.calls = []
+
+            def dispatch(self, tool, args):
+                self.calls.append((tool, args))
+                return {"moved": True}
+
+        parser = cli.build_parser()
+        namespace = parser.parse_args(["mail", "archive", "42", "--target-mailbox", "Processed"])
+        service = FakeService()
+        result = cli.run_compound(namespace, service)
+        self.assertEqual(result["workflow"], "mail.archive")
+        self.assertEqual(
+            service.calls,
+            [("mail_messages", {"action": "move", "message_id": 42, "target_mailbox": "Processed"})],
+        )
+
+    def test_mail_open_compound_maps_to_open_action(self):
+        class FakeService:
+            def dispatch(self, tool, args):
+                return {"tool": tool, "args": args}
+
+        parser = cli.build_parser()
+        namespace = parser.parse_args(["mail", "open", "42", "--mailbox-name", "INBOX"])
+        result = cli.run_compound(namespace, FakeService())
+        self.assertEqual(result["workflow"], "mail.open")
+        self.assertEqual(result["result"]["args"]["action"], "open")
+        self.assertEqual(result["result"]["args"]["mailbox_name"], "INBOX")
+
 
 class CliSubprocessTests(unittest.TestCase):
     def test_help_exits_zero(self):

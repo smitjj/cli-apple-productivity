@@ -101,6 +101,31 @@ def build_parser() -> argparse.ArgumentParser:
     thread.add_argument("--mailbox-name")
     thread.add_argument("--limit", type=int)
 
+    mail_open = mail_sub.add_parser("open", help="Open a message in Mail.app.")
+    _add_runtime_flags(mail_open)
+    mail_open.set_defaults(kind="compound", compound="mail-open")
+    mail_open.add_argument("message_id", type=int)
+    mail_open.add_argument("--account-name")
+    mail_open.add_argument("--mailbox-name")
+
+    mail_move = mail_sub.add_parser("move", help="Move a message to another mailbox.")
+    _add_runtime_flags(mail_move)
+    mail_move.set_defaults(kind="compound", compound="mail-move")
+    mail_move.add_argument("message_id", type=int)
+    mail_move.add_argument("target_mailbox")
+    mail_move.add_argument("--target-account")
+    mail_move.add_argument("--account-name")
+    mail_move.add_argument("--mailbox-name")
+
+    archive = mail_sub.add_parser("archive", help="Move a message to Archive.")
+    _add_runtime_flags(archive)
+    archive.set_defaults(kind="compound", compound="mail-archive")
+    archive.add_argument("message_id", type=int)
+    archive.add_argument("--target-mailbox", default="Archive")
+    archive.add_argument("--target-account")
+    archive.add_argument("--account-name")
+    archive.add_argument("--mailbox-name")
+
     calendar = sub.add_parser("calendar", help="Compound Calendar workflows.")
     calendar_sub = calendar.add_subparsers(dest="calendar_command", required=True)
     agenda = calendar_sub.add_parser("agenda", help="List events for a date range.")
@@ -195,6 +220,28 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
         _maybe(args, "mailbox_name", namespace.mailbox_name)
         _maybe(args, "limit", namespace.limit)
         return service.dispatch("mail_messages", args)
+    if compound == "mail-open":
+        args = {"action": "open", "message_id": namespace.message_id}
+        _maybe(args, "account_name", namespace.account_name)
+        _maybe(args, "mailbox_name", namespace.mailbox_name)
+        result = service.dispatch("mail_messages", args)
+        return {"workflow": "mail.open", "messageId": namespace.message_id, "result": result}
+    if compound in {"mail-move", "mail-archive"}:
+        args = {
+            "action": "move",
+            "message_id": namespace.message_id,
+            "target_mailbox": namespace.target_mailbox,
+        }
+        _maybe(args, "target_account", namespace.target_account)
+        _maybe(args, "account_name", namespace.account_name)
+        _maybe(args, "mailbox_name", namespace.mailbox_name)
+        result = service.dispatch("mail_messages", args)
+        return {
+            "workflow": "mail.archive" if compound == "mail-archive" else "mail.move",
+            "messageId": namespace.message_id,
+            "targetMailbox": namespace.target_mailbox,
+            "result": result,
+        }
     if compound == "mail-triage":
         if namespace.query or namespace.since:
             args = {
