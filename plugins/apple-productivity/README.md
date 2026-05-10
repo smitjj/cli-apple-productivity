@@ -30,11 +30,14 @@ A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders 
 git clone <this-repo> cli-apple-productivity
 ```
 
-The CLI entry point is:
+From the plugin directory, use the short executable:
 
+```sh
+cd <repo>/plugins/apple-productivity
+./apple-productivity --help
 ```
-<repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py
-```
+
+The underlying Python entry point is `<repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py` if you need an absolute script path.
 
 The optional MCP server entry point is:
 
@@ -53,18 +56,18 @@ The first call to any Mail/Calendar/Reminders action will trigger OS prompts. If
 Run the built-in probe to see which permissions are currently granted:
 
 ```sh
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-permissions-check
+./apple-productivity mail-permissions-check
 ```
 
 ### Use the CLI first
 
 ```sh
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-accounts list
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-messages list --mailbox-name INBOX --limit 5 --pretty
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail triage --unread-only --limit 10
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py calendar agenda --days 7
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py day plan
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py doctor
+./apple-productivity mail-accounts list
+./apple-productivity mail-messages list --mailbox-name INBOX --limit 5 --pretty
+./apple-productivity mail triage --unread-only --limit 10
+./apple-productivity calendar agenda --days 7
+./apple-productivity day plan
+./apple-productivity doctor
 ```
 
 CLI output is compact JSON by default for agent token efficiency. Use `--pretty` for human-readable JSON; `--raw` remains an alias for compact output.
@@ -75,13 +78,13 @@ For multiple calls in one warm process:
 printf '%s\n' \
   '{"tool":"mail_accounts","arguments":{"action":"list"}}' \
   '{"tool":"calendar_events","arguments":{"action":"list","date_from":"2026-05-10","date_to":"2026-05-11"}}' \
-  | python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py batch --jsonl
+  | ./apple-productivity batch --jsonl
 ```
 
 For an interactive warm session:
 
 ```sh
-python3 <repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py repl
+./apple-productivity repl
 ```
 
 ### Optional: connect from your MCP client
@@ -152,7 +155,7 @@ The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-fra
 Run the CLI doctor first:
 
 ```sh
-<REPO>/plugins/apple-productivity/scripts/apple_productivity_cli.py mail-permissions-check
+./apple-productivity mail-permissions-check
 ```
 
 The structured output identifies which subsystem (Automation, EventKit, Full Disk Access, Mail.app process) is blocked. If using MCP, then ask the agent something like *"list my Apple Mail accounts"* to exercise the simplest read path.
@@ -278,14 +281,14 @@ Milliseconds and other ISO variants are rejected so Python and JXA agree on what
 The CLI wraps the same service that backs the MCP server. No JSON-RPC, no subprocess hop beyond `osascript` itself.
 
 ```sh
-python3 plugins/apple-productivity/scripts/apple_productivity_cli.py mail-accounts list
-python3 …/apple_productivity_cli.py mail-mailboxes list --account-name iCloud --include-counts
-python3 …/apple_productivity_cli.py mail-messages list --mailbox-name INBOX --limit 5
-python3 …/apple_productivity_cli.py mail-messages search --query invoice --since 2026-01-01
-python3 …/apple_productivity_cli.py mail-compose create --to alice@example.com --subject Hi --body hello
-python3 …/apple_productivity_cli.py calendar-events create --calendar-name Work \
+./apple-productivity mail-accounts list
+./apple-productivity mail-mailboxes list --account-name iCloud --include-counts
+./apple-productivity mail-messages list --mailbox-name INBOX --limit 5
+./apple-productivity mail-messages search --query invoice --since 2026-01-01
+./apple-productivity mail-compose create --to alice@example.com --subject Hi --body hello
+./apple-productivity calendar-events create --calendar-name Work \
     --summary Standup --start-date 2026-05-11T09:00:00 --end-date 2026-05-11T09:30:00
-python3 …/apple_productivity_cli.py reminders-tasks list --list-name Personal
+./apple-productivity reminders-tasks list --list-name Personal
 ```
 
 Output is compact JSON by default; `--pretty` switches to indented JSON. Errors print to stderr and use stable non-zero exit classes: `2` usage/validation, `3` permission, `4` not found, and `5` platform/automation failure.
@@ -293,12 +296,12 @@ Output is compact JSON by default; `--pretty` switches to indented JSON. Errors 
 Compound commands reduce agent round trips:
 
 ```sh
-python3 …/apple_productivity_cli.py mail triage --unread-only --limit 10
-python3 …/apple_productivity_cli.py mail newsletters --with-links
-python3 …/apple_productivity_cli.py mail thread 12345
-python3 …/apple_productivity_cli.py calendar agenda --days 7
-python3 …/apple_productivity_cli.py day plan
-python3 …/apple_productivity_cli.py doctor
+./apple-productivity mail triage --unread-only --limit 10
+./apple-productivity mail newsletters --with-links
+./apple-productivity mail thread 12345
+./apple-productivity calendar agenda --days 7
+./apple-productivity day plan
+./apple-productivity doctor
 ```
 
 ## Permissions troubleshooting
