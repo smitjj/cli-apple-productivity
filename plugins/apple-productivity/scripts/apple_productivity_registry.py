@@ -146,6 +146,7 @@ TOOL_SPECS = (
         ("create", "reply", "forward"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "message_id", "to", "cc", "bcc", "subject", "body", "reply_all", "open_in_mail", "send_now",
+            "dry_run",
         )),
     ),
     ToolSpec(
@@ -164,7 +165,7 @@ TOOL_SPECS = (
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "event_id", "calendar_name", "summary", "location", "notes", "start_date",
             "end_date", "date_from", "date_to", "search", "limit", "all_day", "url",
-            "recurrence", "recurrence_rule", "timezone", "alarms", "source",
+            "recurrence", "recurrence_rule", "timezone", "alarms", "source", "dry_run",
         )),
     ),
     ToolSpec(
@@ -172,7 +173,7 @@ TOOL_SPECS = (
         "reminders-lists",
         "List and manage macOS Reminders lists.",
         ("list", "create", "update", "delete"),
-        tuple(GLOBAL_ARGUMENTS[name] for name in ("list_id", "name", "include_counts")),
+        tuple(GLOBAL_ARGUMENTS[name] for name in ("list_id", "name", "include_counts", "dry_run")),
     ),
     ToolSpec(
         "reminders_tasks",
@@ -183,7 +184,7 @@ TOOL_SPECS = (
             "reminder_id", "title", "list_name", "notes", "due_date", "completed",
             "search", "show_completed", "limit", "priority", "flagged", "alarms",
             "source", "geofence_lat", "geofence_lon", "geofence_radius",
-            "geofence_proximity", "geofence_title",
+            "geofence_proximity", "geofence_title", "dry_run",
         )),
     ),
     ToolSpec(
@@ -192,7 +193,7 @@ TOOL_SPECS = (
         "List, edit, send, or delete saved Apple Mail drafts.",
         ("list", "get", "update", "send", "delete"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
-            "message_id", "account_name", "mailbox_name", "subject", "body", "limit",
+            "message_id", "account_name", "mailbox_name", "subject", "body", "limit", "dry_run",
         )),
     ),
     ToolSpec(

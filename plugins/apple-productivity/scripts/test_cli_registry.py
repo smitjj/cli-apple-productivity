@@ -204,6 +204,11 @@ class CompoundSummaryTests(unittest.TestCase):
             [("mail_messages", {"action": "move", "message_id": 42, "target_mailbox": "Processed"})],
         )
 
+        namespace = parser.parse_args(["mail", "archive", "42", "--dry-run"])
+        service = FakeService()
+        cli.run_compound(namespace, service)
+        self.assertTrue(service.calls[0][1]["dry_run"])
+
     def test_mail_open_compound_maps_to_open_action(self):
         class FakeService:
             def dispatch(self, tool, args):

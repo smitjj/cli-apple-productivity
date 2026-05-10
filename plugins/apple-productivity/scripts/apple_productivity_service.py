@@ -318,6 +318,8 @@ class AppleProductivityService:
                 f"Read-only mode is enabled (APPLE_PRODUCTIVITY_READ_ONLY=1); "
                 f"refusing {tool_name} action {args.get('action')!r}."
             )
+        if args.get("dry_run") and _is_mutating(tool_name, args):
+            return dry_run_response(tool_name, args)
         # Calendar/Reminders writes go through PyObjC EventKit when available.
         # Falls through to JXA on any failure or when EventKit isn't installed.
         ek_result = self._maybe_via_eventkit(tool_name, args)
@@ -830,6 +832,20 @@ def _is_mutating(tool_name: str, args: dict) -> bool:
     if action in _READ_ONLY_ACTIONS:
         return False
     return True
+
+
+def dry_run_response(tool_name: str, args: dict) -> dict:
+    return {
+        "dryRun": True,
+        "wouldMutate": True,
+        "tool": tool_name,
+        "action": args.get("action"),
+        "arguments": {
+            key: value
+            for key, value in args.items()
+            if key not in {"body", "notes"}
+        },
+    }
 
 
 def _walk_messages(value):

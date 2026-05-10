@@ -539,6 +539,35 @@ class ReadOnlyModeTests(unittest.TestCase):
             svc.dispatch("mail_messages", {"action": "delete", "message_id": 1})
         self.assertIn("read-only", str(ctx.exception).lower())
 
+    def test_dry_run_returns_without_mutating(self):
+        svc = AppleProductivityService(use_persistent_worker=False)
+        result = svc.dispatch(
+            "calendar_events",
+            {"action": "delete", "event_id": "Work::abc", "dry_run": True},
+        )
+        self.assertEqual(result["dryRun"], True)
+        self.assertEqual(result["tool"], "calendar_events")
+        self.assertEqual(result["action"], "delete")
+
+    def test_dry_run_is_available_for_compose(self):
+        svc = AppleProductivityService(use_persistent_worker=False)
+        result = svc.dispatch(
+            "mail_compose",
+            {
+                "action": "create",
+                "to": ["alice@example.com"],
+                "subject": "Hello",
+                "body": "secret body",
+                "dry_run": True,
+            },
+        )
+        self.assertTrue(result["dryRun"])
+        self.assertNotIn("body", result["arguments"])
+
+    def test_dry_run_must_be_boolean(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments("calendar_events", {"action": "delete", "event_id": "x", "dry_run": "yes"})
+
 
 class EventKitRoutingTests(unittest.TestCase):
     def test_reminder_update_uses_eventkit_when_available(self):

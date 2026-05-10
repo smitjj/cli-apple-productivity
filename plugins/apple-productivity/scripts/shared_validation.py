@@ -86,6 +86,7 @@ def validate_registered_contract(tool_name: str, arguments: dict) -> None:
     extra_fields = sorted(set(arguments) - allowed_fields)
     if extra_fields:
         raise RuntimeError(f"{tool_name} does not accept argument(s): {', '.join(extra_fields)}")
+    validate_boolean(arguments, "dry_run")
 
     for arg in spec.arguments:
         if arg.name not in arguments:

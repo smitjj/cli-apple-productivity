@@ -116,6 +116,7 @@ def build_parser() -> argparse.ArgumentParser:
     mail_move.add_argument("--target-account")
     mail_move.add_argument("--account-name")
     mail_move.add_argument("--mailbox-name")
+    mail_move.add_argument("--dry-run", action="store_true")
 
     archive = mail_sub.add_parser("archive", help="Move a message to Archive.")
     _add_runtime_flags(archive)
@@ -125,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     archive.add_argument("--target-account")
     archive.add_argument("--account-name")
     archive.add_argument("--mailbox-name")
+    archive.add_argument("--dry-run", action="store_true")
 
     calendar = sub.add_parser("calendar", help="Compound Calendar workflows.")
     calendar_sub = calendar.add_subparsers(dest="calendar_command", required=True)
@@ -235,6 +237,8 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
         _maybe(args, "target_account", namespace.target_account)
         _maybe(args, "account_name", namespace.account_name)
         _maybe(args, "mailbox_name", namespace.mailbox_name)
+        if namespace.dry_run:
+            args["dry_run"] = True
         result = service.dispatch("mail_messages", args)
         return {
             "workflow": "mail.archive" if compound == "mail-archive" else "mail.move",
