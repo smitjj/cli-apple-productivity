@@ -1,7 +1,7 @@
 {
   "name": "apple-productivity",
   "version": "0.5.0",
-  "description": "Control Apple Mail, Calendar, and Reminders on macOS from Codex through a native local MCP server.",
+  "description": "Control Apple Mail, Calendar, and Reminders on macOS through a CLI-first local service with an MCP adapter.",
   "author": {
     "name": "smitjj",
     "email": "smitjj@users.noreply.github.com",
@@ -24,7 +24,7 @@
   "interface": {
     "displayName": "Apple Productivity",
     "shortDescription": "Use Apple Mail, Calendar, and Reminders from Codex",
-    "longDescription": "A local macOS plugin that exposes Apple Mail, Calendar, and Reminders through one native JXA-backed MCP server with grouped action-oriented tools.",
+    "longDescription": "A local macOS plugin that exposes Apple Mail, Calendar, and Reminders through a CLI-first service plus a native JXA-backed MCP adapter with grouped action-oriented tools.",
     "developerName": "smitjj",
     "category": "Productivity",
     "capabilities": [

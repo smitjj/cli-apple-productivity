@@ -24,20 +24,30 @@ A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders 
   python3 -m pip install --user pyobjc-framework-EventKit pyobjc-framework-CoreLocation
   ```
 
-### Clone or place the plugin
+### Clone the repo
 
 ```sh
 git clone <this-repo> cli-apple-productivity
+cd cli-apple-productivity
 ```
 
-From the plugin directory, use the short executable:
+From the repo root, use the short executable:
 
 ```sh
-cd <repo>/plugins/apple-productivity
 ./apple-productivity --help
 ```
 
-The underlying Python entry point is `<repo>/plugins/apple-productivity/scripts/apple_productivity_cli.py` if you need an absolute script path.
+Optional: put the CLI on your `PATH`:
+
+```sh
+mkdir -p ~/.local/bin
+ln -sf "$PWD/apple-productivity" ~/.local/bin/apple-productivity
+apple-productivity --help
+```
+
+Make sure `~/.local/bin` is on your `PATH`.
+
+Use `./apple-productivity` from the repo root for normal CLI work.
 
 The optional MCP server entry point is:
 
@@ -89,17 +99,30 @@ For an interactive warm session:
 
 ### Optional: connect from your MCP client
 
-Pick the client you use. In every snippet below, replace `<REPO>` with the absolute path where you placed this repo (e.g. `/absolute/path/to/cli-apple-productivity`).
+Pick the client you use. Prefer project-scoped config with relative paths when your client supports it. Use absolute paths only for global config files, where the client's working directory may not be this repo.
 
 #### Claude Code (CLI)
 
-This repo already includes a project-scoped `.mcp.json`, so Claude Code picks it up automatically when you `cd` into the project.
+This repo already includes a project-scoped `.mcp.json`, so Claude Code picks it up automatically when you `cd` into `plugins/apple-productivity`.
+
+```json
+{
+  "mcpServers": {
+    "apple-productivity": {
+      "command": "python3",
+      "args": ["./scripts/apple_productivity_mcp_server.py"],
+      "cwd": "."
+    }
+  }
+}
+```
 
 To register globally so it works from any directory:
 
 ```sh
+REPO="/absolute/path/to/cli-apple-productivity"
 claude mcp add apple-productivity \
-  python3 <REPO>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py
+  python3 "$REPO/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"
 ```
 
 #### Claude Desktop
@@ -111,7 +134,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "apple-productivity": {
       "command": "python3",
-      "args": ["<REPO>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
+      "args": ["/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
     }
   }
 }
@@ -126,10 +149,12 @@ Edit `~/.codex/config.toml`:
 ```toml
 [mcp_servers.apple-productivity]
 command = "python3"
-args = ["<REPO>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
+args = ["/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
 ```
 
 This repo also ships a Codex marketplace entry at `.agents/plugins/marketplace.json`, so when running Codex from the repo root the plugin appears in the workspace plugin list and can be installed via the marketplace UI without editing config.toml.
+
+For project-local config, use a relative path from `plugins/apple-productivity/.mcp.json` as shown above. For global `~/.codex/config.toml`, use an absolute path.
 
 #### Gemini CLI (Google)
 
@@ -140,7 +165,7 @@ Edit `~/.gemini/settings.json`:
   "mcpServers": {
     "apple-productivity": {
       "command": "python3",
-      "args": ["<REPO>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
+      "args": ["/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
     }
   }
 }
@@ -148,7 +173,7 @@ Edit `~/.gemini/settings.json`:
 
 #### Anything else MCP-compliant
 
-The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-framed messages (protocol version `2024-11-05`). Any client that follows the spec works — point its `mcpServers` block at `python3 <REPO>/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py`.
+The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-framed messages (protocol version `2024-11-05`). Any client that follows the spec works — point its `mcpServers` block at `python3 /absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py`.
 
 ### Verify
 
