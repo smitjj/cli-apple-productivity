@@ -267,6 +267,46 @@ class EventKitBackend:
             raise RuntimeError(_describe_error(error, "delete reminder"))
         return {"deleted": True, "reminderId": reminder_id}
 
+    def update_reminder(self, args: dict) -> dict:
+        self._require_reminder_access()
+
+        reminder = self._fetch_reminder(args["reminder_id"])
+        if args.get("title") is not None:
+            reminder.setTitle_(str(args["title"]))
+        if args.get("list_name"):
+            reminder.setCalendar_(self._resolve_reminders_list(args.get("list_name"), args.get("source")))
+        if args.get("notes") is not None:
+            reminder.setNotes_(str(args["notes"]))
+        if args.get("priority") is not None:
+            reminder.setPriority_(int(args["priority"]))
+        if args.get("flagged") is not None and args["flagged"] and args.get("priority") is None:
+            reminder.setPriority_(1)
+        if args.get("due_date") is not None:
+            reminder.setDueDateComponents_(_date_components(args["due_date"]))
+        if args.get("completed") is not None:
+            reminder.setCompleted_(bool(args["completed"]))
+        if "alarms" in args:
+            _replace_alarms(reminder, args.get("alarms") or [])
+        if args.get("geofence"):
+            alarm = _build_geofence_alarm(args["geofence"])
+            if alarm is not None:
+                reminder.addAlarm_(alarm)
+
+        success, error = self._store.saveReminder_commit_error_(reminder, True, None)
+        if not success:
+            raise RuntimeError(_describe_error(error, "update reminder"))
+        return self._reminder_summary(reminder)
+
+    def set_reminder_completed(self, reminder_id: str, completed: bool) -> dict:
+        self._require_reminder_access()
+
+        reminder = self._fetch_reminder(reminder_id)
+        reminder.setCompleted_(bool(completed))
+        success, error = self._store.saveReminder_commit_error_(reminder, True, None)
+        if not success:
+            raise RuntimeError(_describe_error(error, "complete reminder"))
+        return self._reminder_summary(reminder)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -579,6 +619,17 @@ def _build_geofence_alarm(spec: dict):
         EventKit.EKAlarmProximityEnter if proximity == "enter" else EventKit.EKAlarmProximityLeave
     )
     return alarm
+
+
+def _replace_alarms(item, offsets: list) -> None:
+    try:
+        import EventKit
+    except ImportError:
+        return
+    for alarm in item.alarms() or []:
+        item.removeAlarm_(alarm)
+    for alarm_offset in offsets:
+        item.addAlarm_(EventKit.EKAlarm.alarmWithRelativeOffset_(float(alarm_offset)))
 
 
 def _source_matches(calendar, filter_value: str) -> bool:

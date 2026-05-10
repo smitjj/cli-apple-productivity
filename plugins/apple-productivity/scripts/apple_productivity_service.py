@@ -368,8 +368,14 @@ class AppleProductivityService:
             elif tool_name == "reminders_tasks":
                 if action == "create" and backend.has_reminder_access:
                     return backend.create_reminder(args)
+                if action == "update" and backend.has_reminder_access:
+                    return backend.update_reminder(args)
                 if action == "delete" and backend.has_reminder_access:
                     return backend.delete_reminder(args["reminder_id"])
+                if action == "complete" and backend.has_reminder_access:
+                    return backend.set_reminder_completed(args["reminder_id"], True)
+                if action == "incomplete" and backend.has_reminder_access:
+                    return backend.set_reminder_completed(args["reminder_id"], False)
         except Exception as exc:
             # Transparent fallback: log and let JXA path try.
             if self.logger:

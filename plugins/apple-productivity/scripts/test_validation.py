@@ -540,6 +540,45 @@ class ReadOnlyModeTests(unittest.TestCase):
         self.assertIn("read-only", str(ctx.exception).lower())
 
 
+class EventKitRoutingTests(unittest.TestCase):
+    def test_reminder_update_uses_eventkit_when_available(self):
+        class FakeBackend:
+            has_event_access = False
+            has_reminder_access = True
+
+            def __init__(self):
+                self.calls = []
+
+            def update_reminder(self, args):
+                self.calls.append(("update", args))
+                return {"id": args["reminder_id"], "title": args["title"]}
+
+        backend = FakeBackend()
+        svc = AppleProductivityService(use_persistent_worker=False)
+        svc._eventkit = backend
+        svc._eventkit_probed = True
+        result = svc.dispatch(
+            "reminders_tasks",
+            {"action": "update", "reminder_id": "abc", "title": "Updated"},
+        )
+        self.assertEqual(result["title"], "Updated")
+        self.assertEqual(backend.calls[0][0], "update")
+
+    def test_reminder_complete_uses_eventkit_when_available(self):
+        class FakeBackend:
+            has_event_access = False
+            has_reminder_access = True
+
+            def set_reminder_completed(self, reminder_id, completed):
+                return {"id": reminder_id, "completed": completed}
+
+        svc = AppleProductivityService(use_persistent_worker=False)
+        svc._eventkit = FakeBackend()
+        svc._eventkit_probed = True
+        result = svc.dispatch("reminders_tasks", {"action": "complete", "reminder_id": "abc"})
+        self.assertEqual(result, {"id": "abc", "completed": True})
+
+
 class IsoEpochTests(unittest.TestCase):
     def test_iso_to_apple_epoch_round_trip(self):
         from apple_productivity_service import _iso_to_epoch_or_none, _apple_epoch_to_iso
