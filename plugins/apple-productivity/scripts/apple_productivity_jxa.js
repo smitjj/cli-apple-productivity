@@ -339,6 +339,7 @@ function remindersTasks(input) {
 function listMailMessages(input) {
   const mailbox = resolveMailMailbox(input.mailbox_name, input.account_name);
   const limit = clampLimit(input.limit, 25);
+  const offset = clampOffset(input.offset);
   const unreadOnly = Boolean(input.unread_only);
   const flaggedOnly = Boolean(input.flagged_only);
   const messages = toArray(mailbox.mailbox.messages())
@@ -347,7 +348,7 @@ function listMailMessages(input) {
       if (flaggedOnly && !safeCall(function () { return message.flaggedStatus(); }, false)) return false;
       return true;
     })
-    .slice(0, limit)
+    .slice(offset, offset + limit)
     .map(function (message) { return messageSummary(message, false, false); });
   return { mailbox: { name: mailbox.name, path: mailbox.path, account: mailbox.accountName }, count: messages.length, messages: messages };
 }
@@ -359,6 +360,7 @@ function searchMailMessages(input) {
   const subjectFilter = normalizeLower(input.subject_contains);
   const sinceBound = input.since ? parseDateInput(input.since) : null;
   const limit = clampLimit(input.limit, 25);
+  const offset = clampOffset(input.offset);
   const unreadOnly = Boolean(input.unread_only);
   const flaggedOnly = Boolean(input.flagged_only);
   const mailboxes = input.mailbox_name
@@ -366,6 +368,7 @@ function searchMailMessages(input) {
     : getSearchMailboxes(input.account_name);
   const results = [];
   const seen = {};
+  let skipped = 0;
   for (let i = 0; i < mailboxes.length; i += 1) {
     const messages = toArray(mailboxes[i].mailbox.messages());
     for (let j = 0; j < messages.length; j += 1) {
@@ -394,6 +397,10 @@ function searchMailMessages(input) {
         if (!received || new Date(received) < sinceBound) continue;
       }
       seen[id] = true;
+      if (skipped < offset) {
+        skipped += 1;
+        continue;
+      }
       results.push(messageSummary(message, false, false));
       if (results.length >= limit) {
         return { query: input.query, count: results.length, messages: results };
@@ -1319,6 +1326,12 @@ function clampLimit(value, defaultValue) {
   const parsed = Number(value || defaultValue);
   if (!isFinite(parsed)) return defaultValue;
   return Math.max(1, Math.min(100, Math.floor(parsed)));
+}
+
+function clampOffset(value) {
+  const parsed = Number(value || 0);
+  if (!isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(10000, Math.floor(parsed));
 }
 
 function toIsoString(value) {

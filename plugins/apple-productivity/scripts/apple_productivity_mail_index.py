@@ -168,6 +168,7 @@ class MailIndexReader:
         subject_contains: Optional[str] = None,
         since_epoch: Optional[float] = None,
         limit: int = 25,
+        offset: int = 0,
         unread_only: bool = False,
         flagged_only: bool = False,
     ) -> list:
@@ -182,34 +183,12 @@ class MailIndexReader:
         clauses = []
         params: list = []
 
-        def like(value: str) -> str:
-            return f"%{value.lower()}%"
-
         if query:
             self._append_text_search(clauses, params, query)
         if from_address:
-            needle = like(from_address)
-            sender_clauses = []
-            sender_params: list = []
-            if self._sender_address_fk:
-                sender_clauses.append(
-                    "(LOWER(sender_addr.address) LIKE ? OR LOWER(COALESCE(sender_addr.comment,'')) LIKE ?)"
-                )
-                sender_params.extend([needle, needle])
-            else:
-                sender_clauses.append("LOWER(m.sender) LIKE ?")
-                sender_params.append(needle)
-            sender_clauses.append("LOWER(m.subject) LIKE ?")
-            sender_params.append(needle)
-            body_expr = self._body_search_expr()
-            if body_expr:
-                sender_clauses.append(f"{body_expr} LIKE ?")
-                sender_params.append(needle)
-            clauses.append("(" + " OR ".join(sender_clauses) + ")")
-            params.extend(sender_params)
+            self._append_from_address_search(clauses, params, from_address)
         if subject_contains:
-            clauses.append("LOWER(m.subject) LIKE ?")
-            params.append(like(subject_contains))
+            self._append_subject_search(clauses, params, subject_contains)
         if since_epoch is not None:
             clauses.append("m.date_received >= ?")
             params.append(since_epoch)
@@ -217,6 +196,7 @@ class MailIndexReader:
             clauses.append("m.read = 0")
         if flagged_only:
             clauses.append("m.flagged = 1")
+        self._append_active_message_filters(clauses)
         mailbox_filter = self._build_mailbox_filter(mailbox_name, account_name)
         if mailbox_filter is not None:
             clauses.append(mailbox_filter[0])
@@ -235,31 +215,16 @@ class MailIndexReader:
                 # handles it.
                 raise MailIndexUnavailable("to_address filter requires recipients/addresses tables")
 
-        sql_parts = [
-            "SELECT m.ROWID AS rowid, m.message_id AS message_id, m.subject AS subject, "
-            f"{self._sender_select_expr()} AS sender, "
-            "m.date_received AS date_received, m.date_sent AS date_sent, "
-            "m.mailbox AS mailbox_rowid, m.read AS read, m.flagged AS flagged"
-        ]
-        if self._sender_address_fk:
-            sql_parts.append(
-                ", sender_addr.address AS sender_address, sender_addr.comment AS sender_comment"
-            )
-        if self.has_column("snippet"):
-            sql_parts.append(", m.snippet AS snippet")
-        elif self.has_column("summary"):
-            sql_parts.append(", m.summary AS snippet")
-        if self.has_column("conversation_id"):
-            sql_parts.append(", m.conversation_id AS conversation_id")
-        sql_parts.append("FROM messages m")
+        sql_parts = self._select_message_sql_parts()
         sender_join = self._sender_join_sql()
         if sender_join:
             sql_parts.append(sender_join)
         if clauses:
             sql_parts.append("WHERE " + " AND ".join(clauses))
         sql_parts.append("ORDER BY m.date_received DESC")
-        sql_parts.append("LIMIT ?")
+        sql_parts.append("LIMIT ? OFFSET ?")
         params.append(int(max(1, min(limit, 200))))
+        params.append(int(max(0, offset)))
 
         sql = "\n".join(sql_parts)
         try:
@@ -273,6 +238,7 @@ class MailIndexReader:
         mailbox_name: str,
         account_name: Optional[str] = None,
         limit: int = 25,
+        offset: int = 0,
         unread_only: bool = False,
         flagged_only: bool = False,
     ) -> dict:
@@ -280,6 +246,7 @@ class MailIndexReader:
             mailbox_name=mailbox_name,
             account_name=account_name,
             limit=limit,
+            offset=offset,
             unread_only=unread_only,
             flagged_only=flagged_only,
         )
@@ -304,17 +271,7 @@ class MailIndexReader:
             raise MailIndexUnavailable(f"thread lookup failed: {exc}") from exc
         if not seed or seed["conversation_id"] is None:
             return []
-        try:
-            rows = self._conn.execute(
-                "SELECT ROWID AS rowid, message_id, subject, sender, date_received, "
-                "date_sent, mailbox AS mailbox_rowid, read, flagged "
-                "FROM messages WHERE conversation_id = ? "
-                "ORDER BY date_received ASC LIMIT ?",
-                (seed["conversation_id"], int(max(1, min(limit, 500)))),
-            ).fetchall()
-        except sqlite3.Error as exc:
-            raise MailIndexUnavailable(f"thread fetch failed: {exc}") from exc
-        return [dict(row) for row in rows]
+        return self._list_conversation(seed["conversation_id"], limit)
 
     def list_thread_by_rowid(self, rowid: int, limit: int = 100) -> list:
         """Return all messages in the same conversation as a Mail message rowid."""
@@ -335,6 +292,74 @@ class MailIndexReader:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _select_message_sql_parts(self) -> list[str]:
+        parts = [
+            "SELECT m.ROWID AS rowid, m.message_id AS message_id, m.subject AS subject, "
+            f"{self._sender_select_expr()} AS sender, "
+            "m.date_received AS date_received, m.date_sent AS date_sent, "
+            "m.mailbox AS mailbox_rowid, m.read AS read, m.flagged AS flagged"
+        ]
+        if self._sender_address_fk:
+            parts.append(
+                ", sender_addr.address AS sender_address, sender_addr.comment AS sender_comment"
+            )
+        if self.has_column("snippet"):
+            parts.append(", m.snippet AS snippet")
+        elif self.has_column("summary"):
+            parts.append(", m.summary AS snippet")
+        if self.has_column("conversation_id"):
+            parts.append(", m.conversation_id AS conversation_id")
+        parts.append("FROM messages m")
+        return parts
+
+    def _append_active_message_filters(self, clauses: list) -> None:
+        if self.has_column("deleted"):
+            clauses.append("m.deleted = 0")
+
+    def _subject_search_expr(self) -> str:
+        if self.has_column("subject_prefix"):
+            return "LOWER(TRIM(COALESCE(m.subject_prefix, '') || COALESCE(m.subject, '')))"
+        return "LOWER(m.subject)"
+
+    def _append_subject_search(self, clauses: list, params: list, value: str) -> None:
+        clauses.append(f"{self._subject_search_expr()} LIKE ?")
+        params.append(f"%{value.lower()}%")
+
+    def _address_search_patterns(self, value: str) -> list[str]:
+        patterns = [f"%{value.lower()}%"]
+        if "@" in value:
+            local, domain = value.lower().rsplit("@", 1)
+            if local and domain and "." in domain:
+                stem = domain.rsplit(".", 1)[0]
+                if stem:
+                    patterns.append(f"%{local}@{stem}.%")
+        unique: list[str] = []
+        for pattern in patterns:
+            if pattern not in unique:
+                unique.append(pattern)
+        return unique
+
+    def _append_from_address_search(self, clauses: list, params: list, from_address: str) -> None:
+        sender_clauses: list[str] = []
+        sender_params: list = []
+        for needle in self._address_search_patterns(from_address):
+            if self._sender_address_fk:
+                sender_clauses.append(
+                    "(LOWER(sender_addr.address) LIKE ? OR LOWER(COALESCE(sender_addr.comment,'')) LIKE ?)"
+                )
+                sender_params.extend([needle, needle])
+            else:
+                sender_clauses.append("LOWER(m.sender) LIKE ?")
+                sender_params.append(needle)
+            sender_clauses.append(f"{self._subject_search_expr()} LIKE ?")
+            sender_params.append(needle)
+            body_expr = self._body_search_expr()
+            if body_expr:
+                sender_clauses.append(f"{body_expr} LIKE ?")
+                sender_params.append(needle)
+        clauses.append("(" + " OR ".join(sender_clauses) + ")")
+        params.extend(sender_params)
 
     def _sender_join_sql(self) -> str:
         if self._sender_address_fk:
@@ -357,20 +382,9 @@ class MailIndexReader:
             return "LOWER(m.summary)"
         return None
 
-    def _append_sender_search(self, clauses: list, params: list, value: str) -> None:
-        needle = f"%{value.lower()}%"
-        if self._sender_address_fk:
-            clauses.append(
-                "(LOWER(sender_addr.address) LIKE ? OR LOWER(COALESCE(sender_addr.comment,'')) LIKE ?)"
-            )
-            params.extend([needle, needle])
-        else:
-            clauses.append("LOWER(m.sender) LIKE ?")
-            params.append(needle)
-
     def _append_text_search(self, clauses: list, params: list, query: str) -> None:
         needle = f"%{query.lower()}%"
-        sub_clauses = ["LOWER(m.subject) LIKE ?"]
+        sub_clauses = [f"{self._subject_search_expr()} LIKE ?"]
         sub_params = [needle]
         body_expr = self._body_search_expr()
         if body_expr:
@@ -405,9 +419,11 @@ class MailIndexReader:
         clause = (
             f"EXISTS (SELECT 1 FROM recipients r "
             f"JOIN addresses a ON a.ROWID = r.{addr_fk} "
-            f"WHERE r.{msg_fk} = m.ROWID AND LOWER(a.{addr_value_col}) LIKE ?)"
+            f"WHERE r.{msg_fk} = m.ROWID AND (LOWER(a.{addr_value_col}) LIKE ? "
+            f"OR LOWER(COALESCE(a.comment,'')) LIKE ?))"
         )
-        return clause, [f"%{to_address.lower()}%"]
+        needle = f"%{to_address.lower()}%"
+        return clause, [needle, needle]
 
     def _build_mailbox_filter(self, mailbox_name: Optional[str], account_name: Optional[str]):
         if not mailbox_name and not account_name:
@@ -431,16 +447,26 @@ class MailIndexReader:
                 params.append(lowered)
                 comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
                 params.append(f"%/{lowered}")
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
+                params.append(f"%/{lowered}/%")
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
+                params.append(f"%{lowered}%")
             clauses.append("(" + " OR ".join(comparisons) + ")")
-        if account_name and account_cols:
+        if account_name:
             comparisons = []
             lowered = account_name.lower()
             for col in account_cols:
                 comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) = ?")
                 params.append(lowered)
+                comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
+                params.append(f"%{lowered}%")
+            if name_cols:
+                for col in name_cols:
+                    comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
+                    params.append(f"%{lowered}%")
+            if not comparisons:
+                raise MailIndexUnavailable("mailboxes table has no usable account column")
             clauses.append("(" + " OR ".join(comparisons) + ")")
-        elif account_name:
-            raise MailIndexUnavailable("mailboxes table has no usable account column")
         return (
             "EXISTS (SELECT 1 FROM mailboxes mb WHERE mb.ROWID = m.mailbox AND "
             + " AND ".join(clauses)
@@ -450,18 +476,19 @@ class MailIndexReader:
 
     def _list_conversation(self, conversation_id, limit: int) -> list:
         assert self._conn is not None
-        select_parts = [
-            "SELECT ROWID AS rowid, message_id, subject, sender, date_received, "
-            "date_sent, mailbox AS mailbox_rowid, read, flagged"
-        ]
-        if self.has_column("snippet"):
-            select_parts.append(", snippet")
-        select_parts.append(", conversation_id FROM messages WHERE conversation_id = ? ORDER BY date_received ASC LIMIT ?")
+        clauses = ["m.conversation_id = ?"]
+        params: list = [conversation_id]
+        self._append_active_message_filters(clauses)
+        sql_parts = self._select_message_sql_parts()
+        sender_join = self._sender_join_sql()
+        if sender_join:
+            sql_parts.append(sender_join)
+        sql_parts.append("WHERE " + " AND ".join(clauses))
+        sql_parts.append("ORDER BY m.date_received ASC")
+        sql_parts.append("LIMIT ?")
+        params.append(int(max(1, min(limit, 500))))
         try:
-            rows = self._conn.execute(
-                "".join(select_parts),
-                (conversation_id, int(max(1, min(limit, 500)))),
-            ).fetchall()
+            rows = self._conn.execute("\n".join(sql_parts), params).fetchall()
         except sqlite3.Error as exc:
             raise MailIndexUnavailable(f"thread fetch failed: {exc}") from exc
         return [dict(row) for row in rows]

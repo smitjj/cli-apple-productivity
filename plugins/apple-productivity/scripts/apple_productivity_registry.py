@@ -54,6 +54,7 @@ GLOBAL_ARGUMENTS = {
         multiple=True,
     ),
     "limit": ArgumentSpec("limit", "integer", help="Maximum number of items to return.", minimum=1, maximum=100),
+    "offset": ArgumentSpec("offset", "integer", help="Number of matching items to skip before returning results.", minimum=0, maximum=10000),
     "include_counts": ArgumentSpec("include_counts", "boolean", help="Include item counts."),
     "query": ArgumentSpec("query", help="Search query."),
     "unread_only": ArgumentSpec("unread_only", "boolean", help="Only include unread messages."),
@@ -138,7 +139,7 @@ TOOL_SPECS = (
             "bulk-set-read", "bulk-set-flag", "bulk-move", "bulk-delete",
         ),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
-            "mailbox_name", "account_name", "message_id", "query", "limit", "unread_only",
+            "mailbox_name", "account_name", "message_id", "query", "limit", "offset", "unread_only",
             "flagged_only", "include_source", "target_mailbox", "target_account", "read",
             "flagged", "since", "from_address", "to_address", "subject_contains",
             "attachment_index", "save_to", "return_inline", "message_ids", "dry_run",

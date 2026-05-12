@@ -453,6 +453,7 @@ class AppleProductivityService:
                 subject_contains=args.get("subject_contains"),
                 since_epoch=since_epoch,
                 limit=int(args.get("limit") or 25),
+                offset=int(args.get("offset") or 0),
                 unread_only=bool(args.get("unread_only")),
                 flagged_only=bool(args.get("flagged_only")),
             )
@@ -465,12 +466,15 @@ class AppleProductivityService:
                 self.logger.info("Mail index search raised, falling back: %s", exc)
             return None
         messages = [_row_to_summary(row) for row in rows]
-        return {
-            "query": args.get("query"),
-            "count": len(messages),
-            "messages": messages,
-            "source": "envelope_index",
-        }
+        limit = int(args.get("limit") or 25)
+        offset = int(args.get("offset") or 0)
+        return _mail_page_payload(
+            limit,
+            offset,
+            messages,
+            query=args.get("query"),
+            source="envelope_index",
+        )
 
     def _try_list_via_index(self, args: dict):
         reader = self._get_mail_index()
@@ -481,6 +485,7 @@ class AppleProductivityService:
                 mailbox_name=args["mailbox_name"],
                 account_name=args.get("account_name"),
                 limit=int(args.get("limit") or 25),
+                offset=int(args.get("offset") or 0),
                 unread_only=bool(args.get("unread_only")),
                 flagged_only=bool(args.get("flagged_only")),
             )
@@ -493,12 +498,15 @@ class AppleProductivityService:
                 self.logger.info("Mail index list raised, falling back: %s", exc)
             return None
         messages = [_row_to_summary(row) for row in payload["messages"]]
-        return {
-            "mailbox": payload["mailbox"],
-            "count": len(messages),
-            "messages": messages,
-            "source": "envelope_index",
-        }
+        limit = int(args.get("limit") or 25)
+        offset = int(args.get("offset") or 0)
+        return _mail_page_payload(
+            limit,
+            offset,
+            messages,
+            mailbox=payload["mailbox"],
+            source="envelope_index",
+        )
 
     def _try_thread_via_index(self, args: dict):
         reader = self._get_mail_index()
@@ -567,6 +575,17 @@ class AppleProductivityService:
                 raise
 
         self._update_scope_cache(action, args, result)
+        if action in {"list", "search"} and isinstance(result, dict):
+            limit = int(args.get("limit") or 25)
+            offset = int(args.get("offset") or 0)
+            messages = result.get("messages")
+            if isinstance(messages, list):
+                extra = {
+                    key: value
+                    for key, value in result.items()
+                    if key not in {"messages", "count", "offset", "limit", "hasMore", "nextOffset"}
+                }
+                result = _mail_page_payload(limit, offset, messages, **extra)
         return _annotate_mail_read_source(action, result, "jxa")
 
     def _envelope_index_diagnostic(self) -> dict:
@@ -808,6 +827,19 @@ def _iso_to_epoch_or_none(value: str) -> Optional[float]:
         return dt.timestamp() - apple_epoch
     except (ValueError, AttributeError):
         return None
+
+
+def _mail_page_payload(limit: int, offset: int, messages: list, **extra: Any) -> dict:
+    payload = {
+        "count": len(messages),
+        "messages": messages,
+        "offset": offset,
+        "limit": limit,
+        "hasMore": len(messages) >= limit,
+        "nextOffset": offset + len(messages),
+    }
+    payload.update(extra)
+    return payload
 
 
 def _annotate_mail_read_source(action: str, result: Any, source: str) -> Any:

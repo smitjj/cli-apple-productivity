@@ -367,7 +367,7 @@ class McpMetadataTests(unittest.TestCase):
         capabilities = response["result"]["capabilities"]
         server_info = response["result"]["serverInfo"]
         self.assertEqual(server_info["name"], "apple-productivity")
-        self.assertEqual(server_info["version"], "0.5.5")
+        self.assertEqual(server_info["version"], "0.5.6")
         self.assertEqual(capabilities["tools"]["listChanged"], False)
 
     def test_initialize_echoes_client_protocol_version(self):

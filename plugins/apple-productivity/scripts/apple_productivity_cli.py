@@ -26,7 +26,7 @@ from apple_productivity_workflows import (
 
 
 PROJECT_NAME = "Apple Productivity CLI"
-PROJECT_VERSION = "0.5.5"
+PROJECT_VERSION = "0.5.6"
 PROJECT_REPOSITORY = "https://github.com/smitjj/cli-apple-productivity"
 PROJECT_LICENSE = "Apache-2.0"
 PROJECT_OWNER = "smitjj"

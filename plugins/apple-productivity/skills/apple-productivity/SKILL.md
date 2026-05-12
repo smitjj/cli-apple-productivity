@@ -17,8 +17,7 @@ description: >-
 - Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
 - Do not invoke raw `osascript`, JXA, or other direct Mail automation outside this plugin.
 - If mail reads are slow, empty, or failing, run `mail_permissions_check` (CLI: `doctor`) before escalating or falling back to other approaches.
-- Respect per-call limits (`limit` max 100; `mail_analyze` with `with_links` max 25); narrow the query instead of pulling a full mailbox in one step.
-- There is no `offset` or cursor on `mail_messages` list/search yet. To walk a large mailbox, narrow with `since`, `query`, sender/subject filters, or mailbox scope; stop when a page returns fewer than `limit` rows or when `summary` counts stop changing.
+- Respect per-call limits (`limit` max 100; `mail_analyze` with `with_links` max 25). Use `offset` and `nextOffset` on `mail_messages` list/search to page through large result sets.
 - Read `summary` first on `mail_analyze` responses; use `result` or `candidates` only when you need specific message ids or details.
 - On mail list/search/triage/newsletters payloads, top-level `"source": "envelope_index"` means Mail's Envelope Index handled the read; `"source": "jxa"` means the plugin fell back to JXA. If `source` is missing on a read payload, treat it as JXA.
 - Run `mail_permissions_check` (CLI: `doctor`) when reads are slow or empty. Check `full_disk_access.ok` and `envelope_index.ok` before assuming the fast index path is available.

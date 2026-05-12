@@ -135,5 +135,86 @@ class MailIndexAddressFkTests(unittest.TestCase):
         self.assertEqual([row["rowid"] for row in rows], [100])
 
 
+class MailIndexBehaviorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "Envelope Index"
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE addresses (
+              ROWID INTEGER PRIMARY KEY,
+              address TEXT,
+              comment TEXT
+            );
+            CREATE TABLE mailboxes (
+              ROWID INTEGER PRIMARY KEY,
+              url TEXT
+            );
+            CREATE TABLE messages (
+              ROWID INTEGER PRIMARY KEY,
+              message_id TEXT,
+              subject_prefix TEXT,
+              subject TEXT,
+              sender INTEGER,
+              date_sent REAL,
+              date_received REAL,
+              mailbox INTEGER,
+              read INTEGER,
+              flagged INTEGER,
+              deleted INTEGER
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO addresses (ROWID, address, comment) VALUES (?, ?, ?)",
+            [
+                (1, "werner@hostafrica.com", "Werner Moller"),
+                (2, "werner@hostafrica.co.za", "Werner Moller"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO mailboxes (ROWID, url) VALUES (1, 'imap://account/INBOX')"
+        )
+        conn.executemany(
+            """
+            INSERT INTO messages
+              (ROWID, message_id, subject_prefix, subject, sender, date_sent, date_received, mailbox, read, flagged, deleted)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (100, "<a@example.com>", "Re:", "Churn", 1, 1, 3, 1, 0, 0, 0),
+                (101, "<b@example.com>", "", "Deleted", 2, 2, 4, 1, 0, 0, 1),
+                (102, "<c@example.com>", "", "Later", 2, 3, 5, 1, 0, 0, 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        self.reader = MailIndexReader(self.db_path)
+        self.reader._connect()
+        self.reader._probe_schema()
+
+    def tearDown(self):
+        self.reader.close()
+        self.tmp.cleanup()
+
+    def test_subject_prefix_is_searchable(self):
+        rows = self.reader.search_messages(query="churn", limit=10)
+        self.assertEqual([row["rowid"] for row in rows], [100])
+
+    def test_deleted_messages_are_excluded(self):
+        rows = self.reader.search_messages(query="deleted", limit=10)
+        self.assertEqual(rows, [])
+
+    def test_from_address_matches_domain_variants(self):
+        rows = self.reader.search_messages(from_address="werner@hostafrica.com", limit=10)
+        self.assertEqual({row["rowid"] for row in rows}, {100, 102})
+
+    def test_offset_skips_matching_rows(self):
+        rows = self.reader.search_messages(query="werner", limit=1, offset=1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["rowid"], 100)
+
+
 if __name__ == "__main__":
     unittest.main()

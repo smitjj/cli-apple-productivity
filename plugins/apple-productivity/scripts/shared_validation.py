@@ -166,6 +166,7 @@ def validate_mail_messages(arguments: dict) -> None:
         validate_string(arguments, "mailbox_name", required=True)
         validate_string(arguments, "account_name")
         validate_integer(arguments, "limit")
+        validate_integer(arguments, "offset")
         validate_boolean(arguments, "unread_only")
         validate_boolean(arguments, "flagged_only")
         return
@@ -184,6 +185,7 @@ def validate_mail_messages(arguments: dict) -> None:
         validate_string(arguments, "subject_contains", max_length=500)
         validate_date(arguments, "since")
         validate_integer(arguments, "limit")
+        validate_integer(arguments, "offset")
         validate_boolean(arguments, "unread_only")
         validate_boolean(arguments, "flagged_only")
         if not any(
