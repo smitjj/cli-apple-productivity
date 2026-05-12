@@ -22,6 +22,9 @@ description: >-
 - For system-like vs human-like mail totals, use `mail_analyze` → `classify` before any `mail_messages` paging. Do not open Mail's Envelope Index with `sqlite3`, SQL, or shell for aggregate counts when `classify` is available.
 - Use `mail_permissions_check` (CLI: `doctor`) to confirm `envelope_index.path` when you need the index location; use `mail_analyze` → `classify` for the counts themselves.
 - Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
+- Use `mail_analyze` / `mail_index` for counts, classification, and sender-pattern planning only. Envelope Index rows expose `indexRowId`, not moveable Mail ids. Before `move` / `bulk-move`, obtain ids from scoped JXA `search` rows that include `id`, `account`, and `mailbox`.
+- Sweep automated mail with repeated scoped `mail_messages` `search` calls (`account_name`, `mailbox_name`, `from_address`, optional `subject_contains`, small `limit`, `offset` / `nextOffset`). Probe with one message before widening batches; Mail can be very slow.
+- After a move timeout or tool-reported failure, verify the target mailbox before retrying the same ids.
 - Do not invoke raw `osascript`, JXA, or other direct Mail automation outside this plugin.
 - If mail reads are slow, empty, or failing, run `mail_permissions_check` (CLI: `doctor`) before escalating or falling back to other approaches.
 - Respect per-call limits (`limit` max 100; `mail_analyze` with `with_links` max 25). Use `offset` and `nextOffset` on `mail_messages` list/search to page through large result sets.
@@ -91,4 +94,4 @@ Use for grouped counts over a mailbox scope. Pass `group_by` (repeatable) and op
 
 ### `sample`
 
-Use for a small capped row sample from the index. Optional `columns` and `filters`; `limit` max 50. Prefer `messages` in the response for follow-up `mail_messages` actions.
+Use for a small capped row sample from the index. Optional `columns` and `filters`; `limit` max 50. Rows expose `indexRowId` for discovery only; rerun scoped `mail_messages` `search` before move or bulk-move.

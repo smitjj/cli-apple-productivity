@@ -50,7 +50,10 @@ GLOBAL_ARGUMENTS = {
     "message_ids": ArgumentSpec(
         "message_ids",
         "integer",
-        help="Repeat for each id. Bulk actions accept at most 50 ids.",
+        help=(
+            "Repeat for each id. Bulk read-state and delete actions accept at most "
+            "50 ids; bulk-move accepts at most 5 ids and the service issues one JXA call per id."
+        ),
         multiple=True,
     ),
     "limit": ArgumentSpec("limit", "integer", help="Maximum number of items to return.", minimum=1, maximum=100),

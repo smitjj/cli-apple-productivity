@@ -73,7 +73,8 @@ Mail.app maintains `~/Library/Mail/V{9,10,11}/MailData/Envelope Index`, a SQLite
 
 Individually small; ride on Phases 1 and 2 where noted:
 
-- `mail_messages.bulk_set_read` / `bulk_set_flag` / `bulk_move` / `bulk_delete` — accept an array of `message_id`s, hard cap at 50, return a per-id success/error map. Cuts agent token usage and exploits the persistent JXA worker.
+- `mail_messages.bulk_set_read` / `bulk_set_flag` / `bulk_delete` — accept an array of `message_id`s, hard cap at 50, return a per-id success/error map. Cuts agent token usage and exploits the persistent JXA worker.
+- `mail_messages.bulk_move` — accepts at most 5 ids per call; the service issues one JXA call per id, merges per-id results, and treats timeouts as ambiguous because Mail may still complete the move. Envelope Index reads expose `indexRowId`, not moveable Mail ids.
 - `mail_messages.get_thread` — return the full conversation for a message_id. Uses the SQLite `conversation_id` column (free after Phase 2); JXA fallback iterates Mail's threading API at higher cost.
 - `mail_messages.get_unsubscribe_link` — pull `List-Unsubscribe` and `List-Unsubscribe-Post` headers from the message source. Available via Mail's `source` already; we just need to surface it as a structured field.
 - **Drafts as first-class** (`mail_drafts` tool, pattern from `s-morgan-jeffries/apple-mail-mcp`). Today `mail_compose.create` with `send_now: false` produces a draft that is then unreachable via our surface; the agent can't iterate on it. New tool with actions `list` (enumerate drafts in each account's Drafts mailbox via JXA), `get`, `update` (subject/body/recipients), `send`, `delete`. Enables the realistic workflow of "draft → review → revise → send" instead of forcing the whole message to be regenerated.

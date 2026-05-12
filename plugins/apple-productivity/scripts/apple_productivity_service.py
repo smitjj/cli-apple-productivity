@@ -21,6 +21,7 @@ from apple_productivity_workflows import (
     summarize_automation_classification,
 )
 from shared_validation import (
+    BULK_MOVE_CHUNK_SIZE,
     normalize_mail_mailbox_scope,
     refine_mail_search_arguments,
     validate_tool_arguments,
@@ -66,6 +67,28 @@ SCOPED_MAIL_ACTIONS = {
     "get-thread",
     "get-unsubscribe-link",
 }
+ACTIONABLE_MAIL_ID_ACTIONS = {
+    "move",
+    "delete",
+    "set-read",
+    "set-flag",
+    "open",
+    "get-attachment",
+    "get-unsubscribe-link",
+    "bulk-move",
+    "bulk-set-read",
+    "bulk-set-flag",
+    "bulk-delete",
+}
+INDEX_ROW_ID_ERROR = (
+    "Envelope Index indexRowId values are not Apple Mail message ids. "
+    "Rerun mail_messages search with account_name, mailbox_name, and from_address "
+    "(or other filters) and use id from JXA-backed rows before mutating mail."
+)
+BULK_MOVE_TIMEOUT_ERROR = (
+    "Automation timed out; Mail may still complete the move shortly. "
+    "Verify the target mailbox before retrying this message id."
+)
 
 
 def plugin_root_for_script(script_path: Path) -> Path:
@@ -133,6 +156,34 @@ class MessageScopeCache:
 
     def __len__(self) -> int:
         return len(self._entries)
+
+
+class IndexRowIdTracker:
+    """Envelope Index ROWIDs exposed in read payloads during this session."""
+
+    MAX_ENTRIES = 4096
+
+    def __init__(self) -> None:
+        self._rowids: set[int] = set()
+
+    def remember(self, rowid) -> None:
+        if rowid is None:
+            return
+        try:
+            normalized = int(rowid)
+        except (TypeError, ValueError):
+            return
+        if normalized in self._rowids:
+            return
+        if len(self._rowids) >= self.MAX_ENTRIES:
+            self._rowids.discard(next(iter(self._rowids)))
+        self._rowids.add(normalized)
+
+    def contains(self, rowid) -> bool:
+        try:
+            return int(rowid) in self._rowids
+        except (TypeError, ValueError):
+            return False
 
 
 class JxaWorkerError(RuntimeError):
@@ -346,6 +397,7 @@ class AppleProductivityService:
                 "current plugin cache."
             )
         self.scope_cache = MessageScopeCache()
+        self.index_row_ids = IndexRowIdTracker()
         self.read_only = read_only if read_only is not None else _env_bool(READ_ONLY_ENV_VAR, False)
         if use_persistent_worker is None:
             use_persistent_worker = _env_bool(PERSISTENT_ENV_VAR, True)
@@ -681,11 +733,13 @@ class AppleProductivityService:
                 raise RuntimeError(f"Unsupported mail_index action: {action}")
         except MailIndexUnavailable as exc:
             raise RuntimeError(str(exc)) from exc
-        return {
+        result = {
             "source": "envelope_index",
             "indexPath": str(reader.db_path),
             **payload,
         }
+        self._remember_index_messages(result.get("messages"))
+        return result
 
     def classify_received_aggregate(self, arguments: dict) -> dict:
         payload = self.dispatch(
@@ -741,16 +795,29 @@ class AppleProductivityService:
             args = self._index_scoped_mail_args(args)
             indexed = self._try_search_via_index(args)
             if indexed is not None:
+                self._remember_index_messages(indexed.get("messages"))
                 return indexed
         elif action == "list":
             args = self._index_scoped_mail_args(args)
             indexed = self._try_list_via_index(args)
             if indexed is not None:
+                self._remember_index_messages(indexed.get("messages"))
                 return indexed
         elif action == "get-thread" and not args.get("mailbox_name"):
             indexed = self._try_thread_via_index(args)
             if indexed is not None and indexed.get("count", 0) > 0:
+                self._remember_index_messages(indexed.get("messages"))
                 return indexed
+
+        if action == "bulk-move":
+            return self._dispatch_bulk_move(args)
+
+        if action in ACTIONABLE_MAIL_ID_ACTIONS:
+            if message_id is not None:
+                self._ensure_actionable_mail_ids([message_id])
+            message_ids = args.get("message_ids")
+            if isinstance(message_ids, list):
+                self._ensure_actionable_mail_ids(message_ids)
 
         if (
             action in SCOPED_MAIL_ACTIONS
@@ -791,7 +858,76 @@ class AppleProductivityService:
                     if key not in {"messages", "count", "offset", "limit", "hasMore", "nextOffset"}
                 }
                 result = _mail_page_payload(limit, offset, messages, **extra)
+                self._remember_index_messages(result.get("messages"))
         return _annotate_mail_read_source(action, result, "jxa")
+
+    def _remember_index_messages(self, messages: Any) -> None:
+        if not isinstance(messages, list):
+            return
+        for message in messages:
+            if isinstance(message, dict):
+                self.index_row_ids.remember(message.get("indexRowId"))
+
+    def _ensure_actionable_mail_ids(self, message_ids: list) -> None:
+        blocked = [message_id for message_id in message_ids if self.index_row_ids.contains(message_id)]
+        if blocked:
+            raise RuntimeError(f"message id(s) {blocked} are {INDEX_ROW_ID_ERROR}")
+
+    def _maybe_inject_scope_hints(self, args: dict, message_ids: list) -> dict:
+        if args.get("mailbox_name"):
+            return args
+        scopes = [self.scope_cache.get(message_id) for message_id in message_ids]
+        if not scopes or any(scope is None for scope in scopes):
+            return args
+        first_account, first_mailbox = scopes[0]
+        if any(scope != scopes[0] for scope in scopes):
+            return args
+        enriched = dict(args)
+        enriched["mailbox_name"] = first_mailbox
+        if first_account and not enriched.get("account_name"):
+            enriched["account_name"] = first_account
+        return enriched
+
+    def _dispatch_bulk_move(self, args: dict) -> Any:
+        message_ids = list(args.get("message_ids") or [])
+        self._ensure_actionable_mail_ids(message_ids)
+        merged = {
+            "succeeded": 0,
+            "failed": 0,
+            "dryRun": bool(args.get("dry_run")),
+            "results": [],
+        }
+        for chunk in _chunked(message_ids, BULK_MOVE_CHUNK_SIZE):
+            chunk_args = {
+                "action": "bulk-move",
+                "message_ids": chunk,
+                "target_mailbox": args.get("target_mailbox"),
+                "target_account": args.get("target_account"),
+                "dry_run": args.get("dry_run"),
+            }
+            for key in ("mailbox_name", "account_name"):
+                if args.get(key):
+                    chunk_args[key] = args[key]
+            chunk_args = self._maybe_inject_scope_hints(chunk_args, chunk)
+            try:
+                chunk_result = self._invoke_jxa("mail_messages", chunk_args)
+            except (TimeoutError, RuntimeError) as exc:
+                if not _is_timeout_error(exc):
+                    raise
+                for message_id in chunk:
+                    merged["failed"] += 1
+                    merged["results"].append(
+                        {
+                            "messageId": message_id,
+                            "ok": False,
+                            "ambiguous": True,
+                            "error": BULK_MOVE_TIMEOUT_ERROR,
+                        }
+                    )
+                continue
+            _merge_bulk_move_chunk(merged, chunk_result)
+        self._update_scope_cache_for_bulk_move(args, merged)
+        return merged
 
     def _envelope_index_diagnostic(self) -> dict:
         if not _env_bool(MAIL_INDEX_ENV_VAR, True):
@@ -866,6 +1002,9 @@ class AppleProductivityService:
         if action == "delete":
             self.scope_cache.forget(args.get("message_id"))
             return
+        if action == "bulk-move":
+            self._update_scope_cache_for_bulk_move(args, result)
+            return
         # For list/get/search/set-read/set-flag/open/get-attachment, harvest
         # any (id, account, mailbox) triples present in the result payload.
         for entry in _walk_messages(result):
@@ -873,6 +1012,20 @@ class AppleProductivityService:
                 entry.get("id"),
                 entry.get("account"),
                 entry.get("mailbox"),
+            )
+
+    def _update_scope_cache_for_bulk_move(self, args: dict, result: Any) -> None:
+        if not isinstance(result, dict):
+            return
+        target_account = args.get("target_account")
+        target_mailbox = args.get("target_mailbox")
+        for entry in result.get("results", []):
+            if not isinstance(entry, dict) or not entry.get("ok"):
+                continue
+            self.scope_cache.remember(
+                entry.get("messageId"),
+                target_account,
+                target_mailbox,
             )
 
     # Convenience methods, one per tool. Both MCP and CLI can use these.
@@ -1108,16 +1261,42 @@ def _format_index_sender(row: dict) -> Any:
     return address or comment or sender
 
 
+def _chunked(values: list, size: int):
+    chunk_size = size if size > 0 else 1
+    for index in range(0, len(values), chunk_size):
+        yield values[index : index + chunk_size]
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    message = str(exc).lower()
+    return "timed out" in message or "timeout" in message
+
+
+def _merge_bulk_move_chunk(merged: dict, chunk_result: Any) -> None:
+    if not isinstance(chunk_result, dict):
+        return
+    if "dryRun" in chunk_result:
+        merged["dryRun"] = bool(chunk_result.get("dryRun"))
+    merged["succeeded"] += int(chunk_result.get("succeeded") or 0)
+    merged["failed"] += int(chunk_result.get("failed") or 0)
+    results = chunk_result.get("results")
+    if isinstance(results, list):
+        merged["results"].extend(results)
+
+
 def _row_to_summary(row: dict) -> dict:
     """Build a message summary from an Envelope Index row.
 
     Shape matches what JXA's ``messageSummary`` returns for the fields we can
     derive from the index. Fields we cannot derive (``account``, ``mailbox``
     name, recipient lists, attachments) stay as None — agents that need them
-    can call ``mail_messages get`` with the message_id header to upgrade.
+    can call ``mail_messages search`` with scoped filters to obtain moveable ids.
     """
     return {
-        "id": row.get("rowid"),
+        "indexRowId": row.get("rowid"),
+        "idSource": "envelope_index_rowid",
         "messageId": row.get("message_id"),
         "subject": row.get("subject"),
         "sender": _format_index_sender(row),

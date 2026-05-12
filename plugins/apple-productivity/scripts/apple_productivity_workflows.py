@@ -133,10 +133,16 @@ def run_mail_newsletters_workflow(service: MailWorkflowService, arguments: dict)
             **({"source": search["source"]} if isinstance(search, dict) and search.get("source") else {}),
         }
     enriched = []
+    index_backed = isinstance(search, dict) and search.get("source") == "envelope_index"
     for message in search.get("messages", []):
         item = {"message": message}
         message_id = message.get("id")
-        if message_id is not None:
+        if index_backed or message.get("indexRowId") is not None:
+            item["unsubscribeError"] = (
+                "Envelope Index rows do not expose moveable Mail ids. "
+                "Rerun mail_messages search with scoped filters before fetching unsubscribe links."
+            )
+        elif message_id is not None:
             try:
                 item["unsubscribe"] = service.dispatch(
                     "mail_messages",

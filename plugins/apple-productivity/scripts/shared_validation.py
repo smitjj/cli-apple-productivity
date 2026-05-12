@@ -55,6 +55,8 @@ CALENDAR_EVENT_ACTIONS = set(TOOL_BY_NAME["calendar_events"].actions)
 REMINDER_LIST_ACTIONS = set(TOOL_BY_NAME["reminders_lists"].actions)
 REMINDER_TASK_ACTIONS = set(TOOL_BY_NAME["reminders_tasks"].actions)
 BULK_LIMIT = 50
+BULK_MOVE_LIMIT = 5
+BULK_MOVE_CHUNK_SIZE = 1
 
 
 def refine_mail_search_arguments(arguments: dict) -> dict:
@@ -299,7 +301,13 @@ def validate_mail_messages(arguments: dict) -> None:
         validate_string(arguments, "account_name")
         return
     if action in {"bulk-set-read", "bulk-set-flag", "bulk-move", "bulk-delete"}:
-        validate_message_id_list(arguments, "message_ids", required=True)
+        max_items = BULK_MOVE_LIMIT if action == "bulk-move" else BULK_LIMIT
+        validate_message_id_list(
+            arguments,
+            "message_ids",
+            required=True,
+            max_items=max_items,
+        )
         validate_string(arguments, "mailbox_name")
         validate_string(arguments, "account_name")
         validate_boolean(arguments, "dry_run")
@@ -398,7 +406,12 @@ def validate_index_filters(filters) -> None:
             raise RuntimeError(f"filters require value for column {column}.")
 
 
-def validate_message_id_list(arguments: dict, field: str, required: bool = False) -> None:
+def validate_message_id_list(
+    arguments: dict,
+    field: str,
+    required: bool = False,
+    max_items: int = BULK_LIMIT,
+) -> None:
     values = arguments.get(field)
     if values is None:
         if required:
@@ -406,8 +419,8 @@ def validate_message_id_list(arguments: dict, field: str, required: bool = False
         return
     if not isinstance(values, list) or not values:
         raise RuntimeError(f"{field} must be a non-empty array of integer message ids.")
-    if len(values) > BULK_LIMIT:
-        raise RuntimeError(f"{field} accepts at most {BULK_LIMIT} ids per call.")
+    if len(values) > max_items:
+        raise RuntimeError(f"{field} accepts at most {max_items} ids per call.")
     for value in values:
         if isinstance(value, bool) or not isinstance(value, int):
             raise RuntimeError(f"{field} must contain only integers.")

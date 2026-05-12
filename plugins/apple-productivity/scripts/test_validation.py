@@ -371,6 +371,17 @@ class BulkMailValidationTests(unittest.TestCase):
                 {"action": "bulk-delete", "message_ids": list(range(51))},
             )
 
+    def test_bulk_move_caps_at_5(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments(
+                "mail_messages",
+                {
+                    "action": "bulk-move",
+                    "message_ids": list(range(6)),
+                    "target_mailbox": "System",
+                },
+            )
+
     def test_bulk_accepts_within_limit(self):
         validate_tool_arguments(
             "mail_messages",
@@ -822,7 +833,7 @@ class IsoEpochTests(unittest.TestCase):
 
 class ServiceCacheIntegrationTests(unittest.TestCase):
     def setUp(self):
-        self.svc = AppleProductivityService()
+        self.svc = AppleProductivityService(use_persistent_worker=False)
 
     def test_list_response_populates_cache(self):
         sample = {
@@ -846,6 +857,81 @@ class ServiceCacheIntegrationTests(unittest.TestCase):
         self.svc.scope_cache.remember(100, "iCloud", "INBOX")
         self.svc._update_scope_cache("delete", {"message_id": 100}, {"deleted": True})
         self.assertIsNone(self.svc.scope_cache.get(100))
+
+
+class IndexRowSummaryTests(unittest.TestCase):
+    def test_row_to_summary_exposes_index_row_id(self):
+        from apple_productivity_service import _row_to_summary
+
+        summary = _row_to_summary({"rowid": 9, "message_id": "<x@example.com>"})
+        self.assertEqual(summary["indexRowId"], 9)
+        self.assertEqual(summary["idSource"], "envelope_index_rowid")
+        self.assertNotIn("id", summary)
+
+
+class BulkMoveDispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.svc = AppleProductivityService(use_persistent_worker=False)
+
+    def test_move_rejects_index_row_ids(self):
+        self.svc.index_row_ids.remember(42)
+        with self.assertRaises(RuntimeError) as ctx:
+            self.svc._dispatch_mail_messages(
+                {
+                    "action": "move",
+                    "message_id": 42,
+                    "target_mailbox": "System",
+                }
+            )
+        self.assertIn("indexRowId", str(ctx.exception))
+
+    def test_bulk_move_chunks_one_id_per_call(self):
+        calls = []
+
+        def fake_invoke(tool_name, arguments):
+            calls.append(arguments)
+            message_id = arguments["message_ids"][0]
+            return {
+                "succeeded": 1,
+                "failed": 0,
+                "dryRun": False,
+                "results": [{"messageId": message_id, "ok": True}],
+            }
+
+        self.svc._invoke_jxa = fake_invoke
+        result = self.svc._dispatch_bulk_move(
+            {
+                "action": "bulk-move",
+                "message_ids": [11, 12, 13],
+                "target_mailbox": "System",
+                "target_account": "Host Africa",
+                "mailbox_name": "INBOX",
+                "account_name": "Host Africa",
+            }
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertEqual({len(call["message_ids"]) for call in calls}, {1})
+        self.assertEqual(result["succeeded"], 3)
+        self.assertEqual(self.svc.scope_cache.get(11), ("Host Africa", "System"))
+
+    def test_bulk_move_timeout_marks_ambiguous(self):
+        def fake_invoke(tool_name, arguments):
+            raise RuntimeError(
+                "Automation timed out after 30 seconds while running mail_messages."
+            )
+
+        self.svc._invoke_jxa = fake_invoke
+        result = self.svc._dispatch_bulk_move(
+            {
+                "action": "bulk-move",
+                "message_ids": [99],
+                "target_mailbox": "System",
+                "mailbox_name": "INBOX",
+            }
+        )
+        self.assertEqual(result["failed"], 1)
+        self.assertTrue(result["results"][0]["ambiguous"])
+        self.assertIn("Verify the target mailbox", result["results"][0]["error"])
 
 
 if __name__ == "__main__":

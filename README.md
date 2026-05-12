@@ -278,12 +278,12 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 | `get-thread` | **`message_id`**, `account_name?`, `mailbox_name?`, `limit?` | `{count, messages[]}` — sibling messages by subject + In-Reply-To/References |
 | `get-unsubscribe-link` | **`message_id`**, `account_name?`, `mailbox_name?` | `{found, urls[], mailtos[], oneClickPost}` parsed from `List-Unsubscribe` headers |
 | `bulk-set-read` / `bulk-set-flag` | **`message_ids`** (max 50), **`read`** or **`flagged`**, `dry_run?`, `account_name?`, `mailbox_name?` | `{succeeded, failed, dryRun, results[]}` |
-| `bulk-move` | **`message_ids`**, **`target_mailbox`**, `target_account?`, `dry_run?` | per-id success map |
-| `bulk-delete` | **`message_ids`**, `dry_run?` | per-id success map |
+| `bulk-move` | **`message_ids`** (max 5), **`target_mailbox`**, `target_account?`, `account_name?`, `mailbox_name?`, `dry_run?` | per-id success map; service issues one JXA call per id |
+| `bulk-delete` | **`message_ids`** (max 50), `dry_run?`, `account_name?`, `mailbox_name?` | per-id success map |
 
 `account_name` and `mailbox_name` are optional scoping hints on every action. Pass them when you know where the message lives — they skip the global mailbox scan and surface a clear "not found in mailbox X" error instead.
 
-`search` accepts filter-only calls, such as `--mailbox-name INBOX --unread-only`, but requires at least one query or filter. For sender lookups, prefer `from_address` or an email-only `query`. `limit` defaults to 25 and caps at 100; use `offset` and `nextOffset` to page. When the Envelope Index path is used, payloads include `"source": "envelope_index"`; JXA fallbacks use `"source": "jxa"`.
+`search` accepts filter-only calls, such as `--mailbox-name INBOX --unread-only`, but requires at least one query or filter. For sender lookups, prefer `from_address` or an email-only `query`. `limit` defaults to 25 and caps at 100; use `offset` and `nextOffset` to page. When the Envelope Index path is used, payloads include `"source": "envelope_index"` and message rows expose `indexRowId` (not moveable Mail ids); use scoped JXA `search` before `move` / `bulk-move`. JXA fallbacks use `"source": "jxa"` and return moveable `id` values.
 
 ### `mail_analyze`
 
@@ -421,7 +421,7 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 
 ## Limits and tunables
 
-- osascript timeout: 30 seconds by default. Override with `APPLE_PRODUCTIVITY_TIMEOUT_SECONDS=60` (any positive integer).
+- osascript timeout: 30 seconds by default. Override with `APPLE_PRODUCTIVITY_TIMEOUT_SECONDS=60` (any positive integer). Mail moves can be slow; a timeout does not always mean the move failed — verify the target mailbox before retrying the same ids.
 - Inline attachment size cap: 5 MB. Larger attachments must use `save_to`.
 - Mail body cap: 50 000 characters.
 - Diagnostic log: set `APPLE_PRODUCTIVITY_LOG=/tmp/ap.log` to record one line per JXA call (tool, action, duration, ok/error).
