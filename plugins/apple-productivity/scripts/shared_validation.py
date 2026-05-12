@@ -59,8 +59,8 @@ BULK_LIMIT = 50
 def refine_mail_search_arguments(arguments: dict) -> dict:
     """Promote sender emails embedded in natural-language search queries."""
     if arguments.get("action") != "search":
-        return arguments
-    refined = dict(arguments)
+        return normalize_mail_mailbox_scope(arguments)
+    refined = normalize_mail_mailbox_scope(arguments)
     query = refined.get("query")
     if refined.get("from_address") or not isinstance(query, str):
         return refined
@@ -71,6 +71,23 @@ def refine_mail_search_arguments(arguments: dict) -> dict:
     if _sender_query_is_email_only(query, emails[0]):
         refined.pop("query", None)
     return refined
+
+
+def normalize_mail_mailbox_scope(arguments: dict) -> dict:
+    """Split composite mailbox labels like ``Host Africa / INBOX``."""
+    mailbox_name = arguments.get("mailbox_name")
+    if not isinstance(mailbox_name, str) or " / " not in mailbox_name:
+        return arguments
+    account_part, mailbox_part = mailbox_name.split(" / ", 1)
+    account_part = account_part.strip()
+    mailbox_part = mailbox_part.strip()
+    if not account_part or not mailbox_part:
+        return arguments
+    normalized = dict(arguments)
+    if not normalized.get("account_name"):
+        normalized["account_name"] = account_part
+    normalized["mailbox_name"] = mailbox_part
+    return normalized
 
 
 def _sender_query_is_email_only(query: str, email: str) -> bool:

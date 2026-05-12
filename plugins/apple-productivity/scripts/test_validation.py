@@ -13,6 +13,7 @@ from shared_validation import (
     is_valid_email,
     parse_date_string,
     refine_mail_search_arguments,
+    normalize_mail_mailbox_scope,
     validate_tool_arguments,
     validate_value,
 )
@@ -560,6 +561,26 @@ class MailSearchRefinementTests(unittest.TestCase):
         )
         self.assertEqual(refined["from_address"], "werner@hostafrica.com")
         self.assertEqual(refined["query"], "invoice werner@hostafrica.com")
+
+
+class MailMailboxScopeTests(unittest.TestCase):
+    def test_composite_mailbox_label_splits_account_and_mailbox(self):
+        refined = normalize_mail_mailbox_scope(
+            {"action": "list", "mailbox_name": "Host Africa / INBOX", "limit": 25}
+        )
+        self.assertEqual(refined["account_name"], "Host Africa")
+        self.assertEqual(refined["mailbox_name"], "INBOX")
+
+    def test_existing_account_name_is_not_overwritten(self):
+        refined = normalize_mail_mailbox_scope(
+            {
+                "action": "list",
+                "mailbox_name": "Host Africa / INBOX",
+                "account_name": "Exchange",
+            }
+        )
+        self.assertEqual(refined["account_name"], "Exchange")
+        self.assertEqual(refined["mailbox_name"], "INBOX")
 
 
 class MailReadSourceTests(unittest.TestCase):

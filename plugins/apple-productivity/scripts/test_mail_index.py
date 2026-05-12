@@ -216,6 +216,68 @@ class MailIndexBehaviorTests(unittest.TestCase):
         self.assertEqual(rows[0]["rowid"], 100)
 
 
+class MailIndexAccountScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "Envelope Index"
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE mailboxes (
+              ROWID INTEGER PRIMARY KEY,
+              url TEXT
+            );
+            CREATE TABLE messages (
+              ROWID INTEGER PRIMARY KEY,
+              message_id TEXT,
+              subject TEXT,
+              sender TEXT,
+              date_sent REAL,
+              date_received REAL,
+              mailbox INTEGER,
+              read INTEGER,
+              flagged INTEGER
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO mailboxes (ROWID, url) VALUES (?, ?)",
+            [
+                (1, "imap://3AE968BD-19BC-44B5-A14D-39791781DE37/INBOX"),
+                (2, "imap://030F0A3B-8BC7-4356-ABDC-A5D275BFE4B6/INBOX"),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO messages
+              (ROWID, message_id, subject, sender, date_sent, date_received, mailbox, read, flagged)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (100, "<a@example.com>", "Host Africa", "alice@example.com", 1, 3, 1, 0, 0),
+                (101, "<b@example.com>", "Other account", "bob@example.com", 1, 4, 2, 0, 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        self.reader = MailIndexReader(self.db_path)
+        self.reader._connect()
+        self.reader._probe_schema()
+
+    def tearDown(self):
+        self.reader.close()
+        self.tmp.cleanup()
+
+    def test_account_url_hints_scope_mailbox_list(self):
+        rows = self.reader.search_messages(
+            mailbox_name="INBOX",
+            account_name="Host Africa",
+            account_url_hints=["3AE968BD-19BC-44B5-A14D-39791781DE37"],
+            limit=10,
+        )
+        self.assertEqual([row["rowid"] for row in rows], [100])
+
+
 class MailIndexUnixDateTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

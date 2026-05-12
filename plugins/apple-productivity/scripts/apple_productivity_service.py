@@ -18,13 +18,22 @@ from apple_productivity_workflows import (
     run_mail_newsletters_workflow,
     run_mail_triage_workflow,
 )
-from shared_validation import refine_mail_search_arguments, validate_tool_arguments
+from shared_validation import (
+    normalize_mail_mailbox_scope,
+    refine_mail_search_arguments,
+    validate_tool_arguments,
+)
 
 try:
-    from apple_productivity_mail_index import MailIndexReader, MailIndexUnavailable
+    from apple_productivity_mail_index import (
+        MailIndexReader,
+        MailIndexUnavailable,
+        account_url_hints_from_accounts_map,
+    )
 except Exception:  # pragma: no cover - module is pure-python; only fails on broken install
     MailIndexReader = None  # type: ignore
     MailIndexUnavailable = RuntimeError  # type: ignore
+    account_url_hints_from_accounts_map = None  # type: ignore
 
 try:
     from apple_productivity_eventkit import EventKitBackend, open_default as _open_eventkit
@@ -427,6 +436,53 @@ class AppleProductivityService:
             self._mail_index = None
         return self._mail_index
 
+    def _index_account_url_hints(self, reader, account_name: Optional[str]) -> Optional[list[str]]:
+        if not account_name:
+            return None
+        hints: list[str] = []
+        match_tokens: list[str] = []
+        try:
+            accounts = self._invoke_jxa("mail_accounts", {})
+            if isinstance(accounts, list):
+                for account in accounts:
+                    if str(account.get("name", "")).lower() != str(account_name).lower():
+                        continue
+                    user_name = str(account.get("userName", "")).strip()
+                    if user_name:
+                        hints.append(user_name)
+                        match_tokens.append(user_name)
+                        if "@" in user_name:
+                            local, domain = user_name.rsplit("@", 1)
+                            if domain:
+                                hints.append(domain)
+                                match_tokens.append(domain)
+                            if local:
+                                match_tokens.append(local)
+                    break
+        except Exception as exc:
+            if self.logger:
+                self.logger.info("Mail account lookup for index hints failed: %s", exc)
+        if account_url_hints_from_accounts_map is not None:
+            try:
+                hints.extend(account_url_hints_from_accounts_map(reader.db_path, match_tokens))
+            except Exception as exc:
+                if self.logger:
+                    self.logger.info("AccountsMap lookup for index hints failed: %s", exc)
+        unique: list[str] = []
+        for hint in hints:
+            candidate = hint.strip()
+            if candidate and candidate not in unique:
+                unique.append(candidate)
+        return unique or None
+
+    def _index_scoped_mail_args(self, args: dict) -> dict:
+        action = args.get("action")
+        if action == "search":
+            return refine_mail_search_arguments(args)
+        if action == "list":
+            return normalize_mail_mailbox_scope(args)
+        return args
+
     def _try_search_via_index(self, args: dict):
         """Attempt to satisfy a mail_messages.search call via SQLite.
 
@@ -437,6 +493,7 @@ class AppleProductivityService:
         reader = self._get_mail_index()
         if reader is None:
             return None
+        account_url_hints = self._index_account_url_hints(reader, args.get("account_name"))
         since_epoch = None
         since = args.get("since")
         if since:
@@ -448,6 +505,7 @@ class AppleProductivityService:
                 query=args.get("query"),
                 mailbox_name=args.get("mailbox_name"),
                 account_name=args.get("account_name"),
+                account_url_hints=account_url_hints,
                 from_address=args.get("from_address"),
                 to_address=args.get("to_address"),
                 subject_contains=args.get("subject_contains"),
@@ -466,6 +524,8 @@ class AppleProductivityService:
                 self.logger.info("Mail index search raised, falling back: %s", exc)
             return None
         messages = [_row_to_summary(row) for row in rows]
+        if not messages and (args.get("account_name") or args.get("mailbox_name")):
+            return None
         limit = int(args.get("limit") or 25)
         offset = int(args.get("offset") or 0)
         return _mail_page_payload(
@@ -480,10 +540,12 @@ class AppleProductivityService:
         reader = self._get_mail_index()
         if reader is None:
             return None
+        account_url_hints = self._index_account_url_hints(reader, args.get("account_name"))
         try:
             payload = reader.list_messages(
                 mailbox_name=args["mailbox_name"],
                 account_name=args.get("account_name"),
+                account_url_hints=account_url_hints,
                 limit=int(args.get("limit") or 25),
                 offset=int(args.get("offset") or 0),
                 unread_only=bool(args.get("unread_only")),
@@ -498,6 +560,8 @@ class AppleProductivityService:
                 self.logger.info("Mail index list raised, falling back: %s", exc)
             return None
         messages = [_row_to_summary(row) for row in payload["messages"]]
+        if not messages:
+            return None
         limit = int(args.get("limit") or 25)
         offset = int(args.get("offset") or 0)
         return _mail_page_payload(
@@ -534,11 +598,12 @@ class AppleProductivityService:
         used_cached_hint = False
 
         if action == "search":
-            args = refine_mail_search_arguments(args)
+            args = self._index_scoped_mail_args(args)
             indexed = self._try_search_via_index(args)
             if indexed is not None:
                 return indexed
         elif action == "list":
+            args = self._index_scoped_mail_args(args)
             indexed = self._try_list_via_index(args)
             if indexed is not None:
                 return indexed

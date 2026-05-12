@@ -20,6 +20,7 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import plistlib
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
@@ -187,6 +188,7 @@ class MailIndexReader:
         query: Optional[str] = None,
         mailbox_name: Optional[str] = None,
         account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
         from_address: Optional[str] = None,
         to_address: Optional[str] = None,
         subject_contains: Optional[str] = None,
@@ -221,7 +223,11 @@ class MailIndexReader:
         if flagged_only:
             clauses.append("m.flagged = 1")
         self._append_active_message_filters(clauses)
-        mailbox_filter = self._build_mailbox_filter(mailbox_name, account_name)
+        mailbox_filter = self._build_mailbox_filter(
+            mailbox_name,
+            account_name,
+            account_url_hints=account_url_hints,
+        )
         if mailbox_filter is not None:
             clauses.append(mailbox_filter[0])
             params.extend(mailbox_filter[1])
@@ -261,6 +267,7 @@ class MailIndexReader:
         self,
         mailbox_name: str,
         account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
         limit: int = 25,
         offset: int = 0,
         unread_only: bool = False,
@@ -269,6 +276,7 @@ class MailIndexReader:
         rows = self.search_messages(
             mailbox_name=mailbox_name,
             account_name=account_name,
+            account_url_hints=account_url_hints,
             limit=limit,
             offset=offset,
             unread_only=unread_only,
@@ -449,7 +457,12 @@ class MailIndexReader:
         needle = f"%{to_address.lower()}%"
         return clause, [needle, needle]
 
-    def _build_mailbox_filter(self, mailbox_name: Optional[str], account_name: Optional[str]):
+    def _build_mailbox_filter(
+        self,
+        mailbox_name: Optional[str],
+        account_name: Optional[str],
+        account_url_hints: Optional[list[str]] = None,
+    ):
         if not mailbox_name and not account_name:
             return None
         if not self.has_table("mailboxes"):
@@ -484,7 +497,14 @@ class MailIndexReader:
                 params.append(lowered)
                 comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
                 params.append(f"%{lowered}%")
-            if name_cols:
+            if account_url_hints:
+                for hint in account_url_hints:
+                    hint_l = hint.lower()
+                    if not hint_l:
+                        continue
+                    comparisons.append("LOWER(CAST(mb.url AS TEXT)) LIKE ?")
+                    params.append(f"%{hint_l}%")
+            elif name_cols and not account_cols:
                 for col in name_cols:
                     comparisons.append(f"LOWER(CAST(mb.{col} AS TEXT)) LIKE ?")
                     params.append(f"%{lowered}%")
@@ -544,3 +564,25 @@ def _iso_to_unix_or_none(value: str) -> Optional[float]:
         return dt.timestamp()
     except (ValueError, AttributeError):
         return None
+
+
+def account_url_hints_from_accounts_map(db_path: Path, match_tokens: list[str]) -> list[str]:
+    plist_path = db_path.parent / "Signatures" / "AccountsMap.plist"
+    if not plist_path.is_file():
+        return []
+    try:
+        with plist_path.open("rb") as handle:
+            payload = plistlib.load(handle)
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return []
+    hints: list[str] = []
+    tokens = [token.lower() for token in match_tokens if token]
+    if not tokens:
+        return []
+    for account_id, metadata in payload.items():
+        if not isinstance(metadata, dict):
+            continue
+        account_url = str(metadata.get("AccountURL", "")).lower()
+        if account_url and any(token in account_url for token in tokens):
+            hints.append(str(account_id))
+    return hints
