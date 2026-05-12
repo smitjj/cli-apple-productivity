@@ -20,7 +20,7 @@ from apple_productivity_service import AppleProductivityService
 
 
 PROJECT_NAME = "Apple Productivity CLI"
-PROJECT_VERSION = "0.5.1"
+PROJECT_VERSION = "0.5.2"
 PROJECT_REPOSITORY = "https://github.com/smitjj/cli-apple-productivity"
 PROJECT_LICENSE = "Apache-2.0"
 PROJECT_OWNER = "smitjj"

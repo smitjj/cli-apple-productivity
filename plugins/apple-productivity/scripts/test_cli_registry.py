@@ -330,7 +330,7 @@ class McpMetadataTests(unittest.TestCase):
         capabilities = response["result"]["capabilities"]
         server_info = response["result"]["serverInfo"]
         self.assertEqual(server_info["name"], "apple-productivity")
-        self.assertEqual(server_info["version"], "0.5.1")
+        self.assertEqual(server_info["version"], "0.5.2")
         self.assertEqual(capabilities["tools"]["listChanged"], False)
 
 
