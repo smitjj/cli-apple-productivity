@@ -8,6 +8,8 @@ A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders 
 - Apple Calendar: calendar and event read/write/delete/open with EventKit-only fields (recurrence rule, alarms, timezone, source disambiguation)
 - Apple Reminders: list and task read/write/delete/complete with priority, flagged, alarms, geofence triggers
 - One registry-driven CLI surface across all three apps, plus compound workflows for triage, agenda, day planning, and diagnostics
+- Summary-first MCP tools such as `mail_analyze` for inbox triage and newsletter/unsubscribe scans
+- A Codex plugin with bundled agent skill, starter prompts, and marketplace install metadata
 - Batch and REPL modes that keep the service, JXA worker, EventKit probe, Mail index, and message scope cache warm
 - A thin stdio MCP adapter generated from the same command/action registry
 - A diagnostic `mail_permissions_check` tool that probes Automation, Full Disk Access, and EventKit state
@@ -20,7 +22,35 @@ Use it at your own risk. Review commands before running them, prefer `--dry-run`
 
 ## Installation
 
-### Prerequisites
+### Fast install (Codex)
+
+The fastest path is the Codex plugin marketplace. It installs the bundled MCP server, agent skill, and starter prompts from this repo.
+
+```sh
+codex plugin marketplace add smitjj/cli-apple-productivity
+codex plugin marketplace upgrade smitjj-apple-productivity
+```
+
+Then in Codex:
+
+1. Open the plugin directory and select the **smitjj-apple-productivity** marketplace.
+2. Install **Apple Productivity** and approve the install prompts.
+3. Restart Codex so the MCP server reloads from the plugin cache.
+4. Confirm the server is registered:
+
+```sh
+codex mcp get apple-productivity
+```
+
+You should see `command: /usr/bin/python3`, `args: -u ./scripts/apple_productivity_mcp_server.py`, and a `cwd` under `~/.codex/plugins/cache/smitjj-apple-productivity/apple-productivity/<version>/`.
+
+If you already have the repo open in Codex, the workspace marketplace at `.agents/plugins/marketplace.json` can also expose the same plugin without adding the GitHub marketplace manually. After plugin changes, run `codex plugin marketplace upgrade smitjj-apple-productivity` and restart Codex.
+
+Grant **Automation** and **Full Disk Access** to the Codex host process before large Mail searches. Run `mail_permissions_check` (or CLI `doctor`) and confirm `envelope_index.ok` when you want the fast Envelope Index path.
+
+### CLI install
+
+Prerequisites:
 
 - macOS (Catalina 10.15+ recommended; tested against modern Mail container layouts `V9`–`V12`)
 - Python 3.9+ (system Python at `/usr/bin/python3` works)
@@ -30,10 +60,10 @@ Use it at your own risk. Review commands before running them, prefer `--dry-run`
   python3 -m pip install --user pyobjc-framework-EventKit pyobjc-framework-CoreLocation
   ```
 
-### Clone the repo
+Clone the repo:
 
 ```sh
-git clone <this-repo> cli-apple-productivity
+git clone https://github.com/smitjj/cli-apple-productivity.git
 cd cli-apple-productivity
 ```
 
@@ -75,7 +105,7 @@ The first call to any Mail/Calendar/Reminders action will trigger OS prompts. If
 
 - **Automation** — allow the host process (Terminal, your MCP client, or `osascript`) to control Mail, Calendar, and Reminders.
 - **Calendars** / **Reminders** — grant full access to the host process (required for EventKit).
-- **Full Disk Access** — required only for the SQLite Envelope Index fast path (`mail_messages.search`). Falls back to JXA scan if denied.
+- **Full Disk Access** — required for the SQLite Envelope Index fast path on `mail_messages` list/search. Falls back to JXA scan if denied.
 
 Run the built-in probe to see which permissions are currently granted:
 
@@ -168,28 +198,18 @@ Restart Claude Desktop after saving.
 
 #### Codex app / Codex CLI (OpenAI)
 
-If you're using the Codex app, the easiest setup path is the built-in Marketplace. You do not need to open this repo in Codex first if you're adding it from the Codex UI.
+Prefer the [fast install](#fast-install-codex) steps above. The Codex plugin bundles `plugins/apple-productivity/.codex-plugin/plugin.json`, `plugins/apple-productivity/skills/`, and `plugins/apple-productivity/.mcp.json`.
 
-1. Open the Marketplace / Plugins UI in Codex.
-2. Add or select this plugin/repository from the Codex UI.
-3. Install **Apple Productivity**.
-4. Approve the install prompts so Codex registers the local MCP server.
-
-This repo ships the required Codex plugin metadata in `plugins/apple-productivity/.codex-plugin/plugin.json`. It also includes a workspace marketplace entry at `.agents/plugins/marketplace.json`, so if the repo is open in Codex the plugin can also appear under the local workspace plugin list.
-
-You do not need to manually edit `~/.codex/config.toml` for the normal Codex app Marketplace flow.
-
-Edit `~/.codex/config.toml`:
+Manual `~/.codex/config.toml` registration is only needed outside the marketplace flow:
 
 ```toml
 [mcp_servers.apple-productivity]
-command = "python3"
-args = ["/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
+command = "/usr/bin/python3"
+args = ["-u", "/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
+env = { PYTHONUNBUFFERED = "1" }
 ```
 
-Use `~/.codex/config.toml` only if you want a manual or global install outside the Codex app Marketplace flow.
-
-For project-local config, use a relative path from `plugins/apple-productivity/.mcp.json` as shown above. For global `~/.codex/config.toml`, use an absolute path.
+For project-local config, use `plugins/apple-productivity/.mcp.json` with `cwd` set to the plugin root.
 
 #### Gemini CLI (Google)
 
@@ -208,7 +228,7 @@ Edit `~/.gemini/settings.json`:
 
 #### Anything else MCP-compliant
 
-The server speaks standard MCP JSON-RPC 2.0 over stdio with `Content-Length`-framed messages (protocol version `2024-11-05`). Any client that follows the spec works — point its `mcpServers` block at `python3 /absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py`.
+The server speaks MCP JSON-RPC 2.0 over stdio. It accepts newline-delimited JSON and `Content-Length`-framed messages and replies in the same format (protocol version `2024-11-05`). Any client that follows the spec works — point its `mcpServers` block at `/usr/bin/python3 -u /absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py` with `PYTHONUNBUFFERED=1`.
 
 The MCP `initialize` response includes `serverInfo.repository`, `serverInfo.license`, `serverInfo.owner`, and a short risk notice.
 
@@ -217,10 +237,10 @@ The MCP `initialize` response includes `serverInfo.repository`, `serverInfo.lice
 Run the CLI doctor first:
 
 ```sh
-./apple-productivity mail-permissions-check
+./apple-productivity doctor
 ```
 
-The structured output identifies which subsystem (Automation, EventKit, Full Disk Access, Mail.app process) is blocked. If using MCP, then ask the agent something like *"list my Apple Mail accounts"* to exercise the simplest read path.
+The structured output identifies which subsystem (Automation, EventKit, Full Disk Access, Envelope Index, Mail.app process) is blocked. If using MCP, then ask the agent something like *"list my Apple Mail accounts"* to exercise the simplest read path.
 
 ## Tool surface
 
@@ -242,9 +262,9 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 
 | action | args | returns |
 | --- | --- | --- |
-| `list` | **`mailbox_name`**, `account_name?`, `limit?`, `unread_only?`, `flagged_only?` | `{mailbox, count, messages[]}` |
+| `list` | **`mailbox_name`**, `account_name?`, `limit?`, `offset?`, `unread_only?`, `flagged_only?` | `{mailbox?, count, messages[], offset, limit, hasMore, nextOffset, source?}` |
 | `get` | **`message_id`**, `account_name?`, `mailbox_name?`, `include_source?` | full message summary |
-| `search` | `query?`, `account_name?`, `mailbox_name?`, `from_address?`, `to_address?`, `subject_contains?`, `since?`, `unread_only?`, `flagged_only?`, `limit?` | `{query, count, messages[]}` |
+| `search` | one or more of `query`, `from_address`, `to_address`, `subject_contains`, `since`, `mailbox_name`, `account_name`, `unread_only`, `flagged_only`, plus `limit?`, `offset?` | `{query?, count, messages[], offset, limit, hasMore, nextOffset, source?}` |
 | `move` | **`message_id`**, **`target_mailbox`**, `target_account?`, `account_name?`, `mailbox_name?`, `dry_run?` | `{moved, …}` |
 | `delete` | **`message_id`**, `account_name?`, `mailbox_name?`, `dry_run?` | `{deleted, …}` |
 | `set-read` | **`message_id`**, **`read`**, `account_name?`, `mailbox_name?` | `{updated, read}` |
@@ -259,7 +279,16 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 
 `account_name` and `mailbox_name` are optional scoping hints on every action. Pass them when you know where the message lives — they skip the global mailbox scan and surface a clear "not found in mailbox X" error instead.
 
-`search` accepts filter-only calls, such as `--mailbox-name INBOX --unread-only`, but requires at least one query or filter.
+`search` accepts filter-only calls, such as `--mailbox-name INBOX --unread-only`, but requires at least one query or filter. For sender lookups, prefer `from_address` or an email-only `query`. `limit` defaults to 25 and caps at 100; use `offset` and `nextOffset` to page. When the Envelope Index path is used, payloads include `"source": "envelope_index"`; JXA fallbacks use `"source": "jxa"`.
+
+### `mail_analyze`
+
+| action | args | returns |
+| --- | --- | --- |
+| `triage` | `mailbox_name?`, `account_name?`, `query?`, `since?`, `limit?`, `unread_only?`, `flagged_only?` | `{workflow, summary, result, source?}` |
+| `newsletters` | `query?`, `limit?`, `with_links?` | `{workflow, summary, candidates, source?}` — `with_links` is capped at 25 per call |
+
+These mirror the CLI compound commands `mail triage` and `mail newsletters` and return summary-first payloads for agents.
 
 `dry_run` is accepted on mutating tools and returns a `{dryRun, wouldMutate, tool, action, arguments}` preview without calling Mail, Calendar, or Reminders.
 
@@ -330,7 +359,7 @@ When the EventKit backend is active, `create` and `update` additionally accept `
 
 | action | args | returns |
 | --- | --- | --- |
-| `check` (default) | – | `{automation, full_disk_access, mail_running, calendar, reminders}` — each subkey is `{ok, error}` |
+| `check` (default) | – | `{automation, full_disk_access, envelope_index, mail_running, calendar, reminders}` — each subkey is `{ok, error}`; `envelope_index` also includes `path` when available |
 
 ## Date format
 
@@ -392,7 +421,7 @@ Errors mentioning `(-1743)` or "not authorized to send Apple events" always come
 - Diagnostic log: set `APPLE_PRODUCTIVITY_LOG=/tmp/ap.log` to record one line per JXA call (tool, action, duration, ok/error).
 - Message-id scope cache: 256 most recent message ids stay in-memory per service instance (one MCP session, one `batch`/`repl` session, or one single CLI invocation). Repeat targeted actions on the same message — `get`, `set-read`, `set-flag`, `delete`, `open`, `get-attachment` — skip the global mailbox scan in JXA. The cache evicts on `delete` and updates on `move`; if a cached scope is stale (message moved out-of-band), the service automatically retries once with no hint.
 - Persistent JXA worker: a single long-lived `osascript` subprocess is reused across tool calls, eliminating the ~150–250 ms cold start. Disable with `APPLE_PRODUCTIVITY_PERSISTENT_JXA=0`; on two consecutive worker failures the service automatically falls back to one-shot for the remainder of the session.
-- Mail Envelope Index fast path: `mail_messages.search` opens `~/Library/Mail/V*/MailData/Envelope Index` read-only and answers from SQLite (~50 ms vs ~minutes for JXA scan on large mailboxes). Probed once per session; falls back silently to JXA if Full Disk Access is missing or the schema does not match. Disable with `APPLE_PRODUCTIVITY_MAIL_INDEX=0`. Result payloads include `"source": "envelope_index"` when this path is used.
+- Mail Envelope Index fast path: `mail_messages` list/search opens `~/Library/Mail/V*/MailData/Envelope Index` read-only and answers from SQLite (~50 ms vs minutes for JXA scan on large mailboxes). Probed once per session; falls back silently to JXA if Full Disk Access is missing or the schema does not match. Disable with `APPLE_PRODUCTIVITY_MAIL_INDEX=0`. Result payloads include `"source": "envelope_index"` when this path is used and `"source": "jxa"` on fallback.
 - EventKit backend: when PyObjC is installed and permission is granted, Calendar `create`/`update`/`delete` and Reminders `create`/`delete` route through EventKit instead of JXA — retiring the AppleScript-delete fallback and unlocking the new `recurrence_rule`, `timezone`, `alarms`, `geofence`, and `source` fields. Failures fall back to JXA transparently. Disable with `APPLE_PRODUCTIVITY_EVENTKIT=0`.
 - Read-only mode: `APPLE_PRODUCTIVITY_READ_ONLY=1` rejects every action that mutates state (compose, delete, set-*, move, bulk-*, draft updates, calendar/reminder writes). `mail_permissions_check` and all read paths still work.
 
