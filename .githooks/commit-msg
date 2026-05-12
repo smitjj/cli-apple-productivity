@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+msg_file=${1:-}
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+
+tmp=$(mktemp)
+sed -E '/^[Cc]o-[Aa]uthored-[Bb]y: Cursor <cursoragent@cursor.com>$/d' "$msg_file" > "$tmp"
+mv "$tmp" "$msg_file"
