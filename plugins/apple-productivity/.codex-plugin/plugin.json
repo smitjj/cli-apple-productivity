@@ -1,6 +1,6 @@
 {
   "name": "apple-productivity",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Control Apple Mail, Calendar, and Reminders on macOS through a CLI-first local service with an MCP adapter.",
   "author": {
     "name": "smitjj",
@@ -24,8 +24,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Apple Productivity",
-    "shortDescription": "Use Apple Mail, Calendar, and Reminders from Codex",
-    "longDescription": "A local macOS plugin that exposes Apple Mail, Calendar, and Reminders through a CLI-first service plus a native JXA-backed MCP adapter with grouped action-oriented tools.",
+    "shortDescription": "Mail, Calendar, and Reminders with index-backed mail counts",
+    "longDescription": "A local macOS plugin for Apple Mail, Calendar, and Reminders. Use mail_analyze classify for system-generated vs human-generated mail counts and mail_index for other Envelope Index aggregates without sqlite3.",
     "developerName": "smitjj",
     "category": "Productivity",
     "capabilities": [
@@ -38,6 +38,7 @@
     "termsOfServiceURL": "https://github.com/smitjj/cli-apple-productivity",
     "defaultPrompt": [
       "Use Apple Productivity only; prefer mail_index and mail_analyze for Mail aggregates; do not use raw osascript or sqlite3 on Mail; run doctor when reads are slow or empty.",
+      "How many emails do I have that are system generated vs human generated?",
       "Classify my inbox into likely automated vs likely human mail",
       "Summarize unread messages from my main inbox",
       "Draft an email in Apple Mail to my team",

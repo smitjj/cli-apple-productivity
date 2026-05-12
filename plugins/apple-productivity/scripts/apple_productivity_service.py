@@ -774,7 +774,21 @@ class AppleProductivityService:
             path = str(reader.db_path)
         finally:
             reader.close()
-        return {"ok": True, "error": None, "path": path}
+        return {
+            "ok": True,
+            "error": None,
+            "path": path,
+            "recommendedTools": {
+                "systemVsHumanCounts": {
+                    "tool": "mail_analyze",
+                    "action": "classify",
+                },
+                "customAggregate": {
+                    "tool": "mail_index",
+                    "action": "aggregate",
+                },
+            },
+        }
 
     def _dispatch_mail_analyze(self, args: dict) -> Any:
         action = args.get("action")

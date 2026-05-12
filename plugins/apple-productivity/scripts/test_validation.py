@@ -452,6 +452,16 @@ class MailAnalyzeValidationTests(unittest.TestCase):
             },
         )
 
+    def test_system_vs_human_alias_normalizes_to_classify(self):
+        args = {
+            "action": "system_vs_human",
+            "mailbox_name": "Host Africa / INBOX",
+        }
+        validate_tool_arguments("mail_analyze", args)
+        self.assertEqual(args["action"], "classify")
+        self.assertEqual(args["account_name"], "Host Africa")
+        self.assertEqual(args["mailbox_name"], "INBOX")
+
 
 class MailIndexValidationTests(unittest.TestCase):
     def test_describe_accepts_empty_scope(self):

@@ -90,6 +90,16 @@ def normalize_mail_mailbox_scope(arguments: dict) -> dict:
     return normalized
 
 
+def normalize_mail_analyze_action(arguments: dict) -> dict:
+    scoped = normalize_mail_mailbox_scope(arguments)
+    if scoped is not arguments:
+        arguments.clear()
+        arguments.update(scoped)
+    if arguments.get("action") == "system_vs_human":
+        arguments["action"] = "classify"
+    return arguments
+
+
 def _sender_query_is_email_only(query: str, email: str) -> bool:
     lowered = query.strip().lower()
     if lowered == email.lower():
@@ -308,6 +318,7 @@ def validate_mail_drafts(arguments: dict) -> None:
 
 
 def validate_mail_analyze(arguments: dict) -> None:
+    normalize_mail_analyze_action(arguments)
     action = validate_action(arguments, MAIL_ANALYZE_ACTIONS)
     validate_string(arguments, "mailbox_name")
     validate_string(arguments, "account_name")

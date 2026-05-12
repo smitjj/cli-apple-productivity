@@ -11,6 +11,7 @@ description: >-
 
 ## Agent guidance
 
+- If the user asks how many emails are system-generated vs human-generated, automated vs human, or machine vs person, call `mail_analyze` with `action: "classify"` (alias `system_vs_human`) or `mail classify`. Do not run `sqlite3`, SQL, or shell against `~/Library/Mail/.../Envelope Index`.
 - Use Apple Productivity only for Mail, Calendar, and Reminders work on macOS.
 - Prefer summary-first tools before raw message dumps:
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).
@@ -34,7 +35,7 @@ description: >-
 | --- | --- | --- |
 | Inbox triage / unread counts | `mail_analyze` → `triage` | `mail triage` |
 | Newsletter / unsubscribe scan | `mail_analyze` → `newsletters` | `mail newsletters` |
-| Automated vs human aggregate | `mail_analyze` → `classify` | `mail classify` |
+| System-generated vs human-generated counts | `mail_analyze` → `classify` or `system_vs_human` | `mail classify` |
 | Index schema / grouped counts / samples | `mail_index` → `describe` / `aggregate` / `sample` | `mail-index` |
 | Targeted lookup | `mail_messages` → `search` | `mail-messages search` |
 | Permissions / slow reads | `mail_permissions_check` | `doctor` |
@@ -55,9 +56,9 @@ Use for bulk/marketing mail and unsubscribe discovery. Defaults `query` to `unsu
 
 Set `with_links: true` only for a small candidate set (limit at most 25); it fetches `List-Unsubscribe` metadata per message.
 
-### `classify`
+### `classify` / `system_vs_human`
 
-Use for aggregate likely-automated vs likely-human counts over a mailbox scope. Defaults to mailbox `INBOX` when omitted. This action is Envelope Index-backed; it does not page individual messages.
+Use for aggregate likely-automated vs likely-human counts over a mailbox scope. `system_vs_human` is an alias for `classify`. Defaults to mailbox `INBOX` when omitted. This action is Envelope Index-backed; it does not page individual messages.
 
 Common arguments: `mailbox_name`, `account_name`, `since`, `unread_only`, `flagged_only`.
 

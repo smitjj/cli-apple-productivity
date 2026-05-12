@@ -220,7 +220,7 @@ TOOL_SPECS = (
     ToolSpec(
         "mail_index",
         "mail-index",
-        "Read-only structured Envelope Index queries: describe schema, aggregate counts, and sample rows.",
+        "Read-only Envelope Index queries for agents: use describe/aggregate/sample instead of sqlite3 on Mail. aggregate answers grouped counts such as system-generated vs human-generated mail.",
         ("describe", "aggregate", "sample"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "mailbox_name", "account_name", "since", "unread_only", "flagged_only",
@@ -230,8 +230,8 @@ TOOL_SPECS = (
     ToolSpec(
         "mail_analyze",
         "mail-analyze",
-        "Summary-first Mail triage, newsletter/unsubscribe analysis, and Envelope Index aggregate classify counts for likely automated vs likely human mail.",
-        ("triage", "newsletters", "classify"),
+        "Summary-first Mail analysis. Use action classify (or system_vs_human) for aggregate system-generated vs human-generated counts from the Envelope Index; do not use sqlite3. triage and newsletters cover inbox review and unsubscribe scans.",
+        ("triage", "newsletters", "classify", "system_vs_human"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "mailbox_name", "account_name", "query", "since", "limit", "unread_only",
             "flagged_only", "with_links",
