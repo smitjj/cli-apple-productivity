@@ -18,7 +18,7 @@ from apple_productivity_workflows import (
     run_mail_newsletters_workflow,
     run_mail_triage_workflow,
 )
-from shared_validation import validate_tool_arguments
+from shared_validation import refine_mail_search_arguments, validate_tool_arguments
 
 try:
     from apple_productivity_mail_index import MailIndexReader, MailIndexUnavailable
@@ -526,6 +526,7 @@ class AppleProductivityService:
         used_cached_hint = False
 
         if action == "search":
+            args = refine_mail_search_arguments(args)
             indexed = self._try_search_via_index(args)
             if indexed is not None:
                 return indexed

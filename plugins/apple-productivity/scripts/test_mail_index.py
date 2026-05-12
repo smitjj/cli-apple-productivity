@@ -72,6 +72,10 @@ class MailIndexReaderTests(unittest.TestCase):
         rows = self.reader.search_messages(mailbox_name="Archive", unread_only=True)
         self.assertEqual([row["rowid"] for row in rows], [102])
 
+    def test_from_address_matches_sender_subject_or_snippet(self):
+        rows = self.reader.search_messages(from_address="alice@example.com", limit=10)
+        self.assertEqual([row["rowid"] for row in rows], [100])
+
     def test_thread_lookup_by_rowid(self):
         rows = self.reader.list_thread_by_rowid(100)
         self.assertEqual([row["rowid"] for row in rows], [100, 101])

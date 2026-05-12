@@ -14,7 +14,7 @@ description: >-
 - Prefer summary-first tools before raw message dumps:
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).
   - `mail_analyze` with `action: "newsletters"` for newsletter/unsubscribe candidates (CLI: `mail newsletters`).
-- Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls.
+- Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
 - Do not invoke raw `osascript`, JXA, or other direct Mail automation outside this plugin.
 - If mail reads are slow, empty, or failing, run `mail_permissions_check` (CLI: `doctor`) before escalating or falling back to other approaches.
 - Respect per-call limits (`limit` max 100; `mail_analyze` with `with_links` max 25); narrow the query instead of pulling a full mailbox in one step.

@@ -22,6 +22,28 @@ DATETIME_PATTERN = re.compile(
 )
 EMAIL_LOCAL_PATTERN = re.compile(r"^[^\s@]+$")
 EMAIL_DOMAIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$")
+SEARCH_EMAIL_TOKEN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+SEARCH_QUERY_FILLER = frozenset(
+    {
+        "all",
+        "any",
+        "email",
+        "emails",
+        "find",
+        "for",
+        "from",
+        "in",
+        "mail",
+        "mailbox",
+        "mailboxes",
+        "message",
+        "messages",
+        "my",
+        "search",
+        "show",
+        "the",
+    }
+)
 
 
 MAIL_MESSAGE_ACTIONS = set(TOOL_BY_NAME["mail_messages"].actions)
@@ -32,6 +54,33 @@ CALENDAR_EVENT_ACTIONS = set(TOOL_BY_NAME["calendar_events"].actions)
 REMINDER_LIST_ACTIONS = set(TOOL_BY_NAME["reminders_lists"].actions)
 REMINDER_TASK_ACTIONS = set(TOOL_BY_NAME["reminders_tasks"].actions)
 BULK_LIMIT = 50
+
+
+def refine_mail_search_arguments(arguments: dict) -> dict:
+    """Promote sender emails embedded in natural-language search queries."""
+    if arguments.get("action") != "search":
+        return arguments
+    refined = dict(arguments)
+    query = refined.get("query")
+    if refined.get("from_address") or not isinstance(query, str):
+        return refined
+    emails = SEARCH_EMAIL_TOKEN.findall(query)
+    if not emails:
+        return refined
+    refined["from_address"] = emails[0].lower()
+    if _sender_query_is_email_only(query, emails[0]):
+        refined.pop("query", None)
+    return refined
+
+
+def _sender_query_is_email_only(query: str, email: str) -> bool:
+    lowered = query.strip().lower()
+    if lowered == email.lower():
+        return True
+    residual = SEARCH_EMAIL_TOKEN.sub(" ", lowered)
+    residual = re.sub(r"[^a-z ]+", " ", residual)
+    tokens = [token for token in residual.split() if token and token not in SEARCH_QUERY_FILLER]
+    return not tokens
 
 
 def validate_tool_arguments(tool_name: str, arguments: dict) -> None:

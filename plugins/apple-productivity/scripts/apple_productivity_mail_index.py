@@ -185,8 +185,16 @@ class MailIndexReader:
                 params.append(like(query))
             clauses.append("(" + " OR ".join(sub_clauses) + ")")
         if from_address:
-            clauses.append("LOWER(m.sender) LIKE ?")
-            params.append(like(from_address))
+            needle = like(from_address)
+            sender_clauses = ["LOWER(m.sender) LIKE ?"]
+            sender_params = [needle]
+            if self.has_column("snippet"):
+                sender_clauses.append("LOWER(m.snippet) LIKE ?")
+                sender_params.append(needle)
+            sender_clauses.append("LOWER(m.subject) LIKE ?")
+            sender_params.append(needle)
+            clauses.append("(" + " OR ".join(sender_clauses) + ")")
+            params.extend(sender_params)
         if subject_contains:
             clauses.append("LOWER(m.subject) LIKE ?")
             params.append(like(subject_contains))

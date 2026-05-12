@@ -12,6 +12,7 @@ from apple_productivity_service import (
 from shared_validation import (
     is_valid_email,
     parse_date_string,
+    refine_mail_search_arguments,
     validate_tool_arguments,
     validate_value,
 )
@@ -537,6 +538,28 @@ class AlarmAndGeofenceTests(unittest.TestCase):
                 },
             },
         )
+
+
+class MailSearchRefinementTests(unittest.TestCase):
+    def test_natural_language_sender_query_promotes_from_address(self):
+        refined = refine_mail_search_arguments(
+            {
+                "action": "search",
+                "query": "search for emails from werner@hostafrica.com",
+            }
+        )
+        self.assertEqual(refined["from_address"], "werner@hostafrica.com")
+        self.assertNotIn("query", refined)
+
+    def test_subject_query_with_email_is_left_unchanged(self):
+        refined = refine_mail_search_arguments(
+            {
+                "action": "search",
+                "query": "invoice werner@hostafrica.com",
+            }
+        )
+        self.assertEqual(refined["from_address"], "werner@hostafrica.com")
+        self.assertEqual(refined["query"], "invoice werner@hostafrica.com")
 
 
 class MailReadSourceTests(unittest.TestCase):

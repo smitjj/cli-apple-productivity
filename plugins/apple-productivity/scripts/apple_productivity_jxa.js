@@ -372,12 +372,12 @@ function searchMailMessages(input) {
       const message = messages[j];
       const id = safeCall(function () { return message.id(); }, null);
       if (id === null || seen[id]) continue;
-      if (!matchesMailQuery(message, query)) continue;
+      if (query && !matchesMailQuery(message, query)) continue;
       if (unreadOnly && safeCall(function () { return message.readStatus(); }, true)) continue;
       if (flaggedOnly && !safeCall(function () { return message.flaggedStatus(); }, false)) continue;
       if (fromFilter) {
         const sender = String(safeCall(function () { return message.sender(); }, "") || "").toLowerCase();
-        if (sender.indexOf(fromFilter) === -1) continue;
+        if (!senderMatchesFilter(sender, fromFilter)) continue;
       }
       if (toFilter) {
         const recipientText = String(toArray(safeCall(function () { return message.toRecipients(); }, [])).map(function (r) {
@@ -1167,6 +1167,7 @@ function flattenMailboxes(mailboxes, accountName, prefix) {
 }
 
 function matchesMailQuery(message, query) {
+  if (!query) return true;
   const haystacks = [
     safeCall(function () { return message.subject(); }, ""),
     safeCall(function () { return message.sender(); }, ""),
@@ -1174,6 +1175,17 @@ function matchesMailQuery(message, query) {
     safeCall(function () { return message.messageId(); }, ""),
   ];
   return haystacks.some(function (value) { return String(value || "").toLowerCase().indexOf(query) !== -1; });
+}
+
+function senderMatchesFilter(sender, filter) {
+  if (!filter) return true;
+  if (sender.indexOf(filter) !== -1) return true;
+  return extractEmailAddresses(sender).some(function (address) { return address.indexOf(filter) !== -1; });
+}
+
+function extractEmailAddresses(value) {
+  const matches = String(value || "").toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g);
+  return matches || [];
 }
 
 function matchesCalendarQuery(event, query) {
