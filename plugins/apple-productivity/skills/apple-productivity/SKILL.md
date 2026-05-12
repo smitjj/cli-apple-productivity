@@ -66,6 +66,18 @@ Common arguments: `mailbox_name`, `account_name`, `since`, `unread_only`, `flagg
 
 Read `summary.collapsed` first (`likelyHuman`, `likelyAutomated`, `ambiguous`). Use `summary.automatedConversation` when you need raw Mail `automated_conversation` signal counts.
 
+## `mail_mailboxes` actions
+
+### `create`
+
+Create a folder on an account. Requires `account_name` and `mailbox_name` (the new folder name). Use `parent_mailbox` when the folder should be nested under an existing mailbox.
+
+### `rename`
+
+Rename an existing folder. Requires `account_name`, `mailbox_name` (current folder path or name), and `name` (new folder name).
+
+Both actions support `dry_run`.
+
 ## `mail_index` actions
 
 ### `describe`
