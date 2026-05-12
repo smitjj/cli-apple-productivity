@@ -93,12 +93,85 @@ function runServer() {
   return "";
 }
 
-const mail = Application("Mail");
-const calendar = Application("Calendar");
-const reminders = Application("Reminders");
-mail.includeStandardAdditions = true;
-calendar.includeStandardAdditions = true;
-reminders.includeStandardAdditions = true;
+ObjC.import("Foundation");
+ObjC.import("AppKit");
+
+const fileManager = $.NSFileManager.defaultManager;
+const workspace = $.NSWorkspace.sharedWorkspace;
+
+// Some hosts fail to resolve app display names via JXA Application("Mail"),
+// even though the apps exist at their standard bundle paths.
+function resolveApplication(displayName, bundleId, fallbackPaths) {
+  const candidates = [];
+  const seen = {};
+  let lastError = null;
+
+  function pushCandidate(candidate) {
+    if (!candidate) return;
+    const normalized = String(candidate);
+    if (seen[normalized]) return;
+    seen[normalized] = true;
+    candidates.push(normalized);
+  }
+
+  function unwrapString(value) {
+    if (!value) return null;
+    try {
+      return ObjC.unwrap(value);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  try {
+    const url = workspace.URLForApplicationWithBundleIdentifier($(bundleId));
+    if (url && !url.isNil()) pushCandidate(unwrapString(url.path()));
+  } catch (error) {
+    lastError = error;
+  }
+
+  try {
+    const path = workspace.fullPathForApplication($(displayName));
+    if (path && !path.isNil()) pushCandidate(unwrapString(path));
+  } catch (error) {
+    lastError = error;
+  }
+
+  toArray(fallbackPaths).forEach(pushCandidate);
+  pushCandidate(displayName);
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const candidate = candidates[i];
+    if (candidate.charAt(0) === "/" && !fileManager.fileExistsAtPath($(candidate))) {
+      continue;
+    }
+    try {
+      const app = Application(candidate);
+      app.includeStandardAdditions = true;
+      return app;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw new Error(
+    "Application could not be resolved for " + displayName + ". "
+      + (lastError ? String(lastError) : "No usable application target found.")
+  );
+}
+
+const mail = resolveApplication("Mail", "com.apple.mail", [
+  "/System/Applications/Mail.app",
+  "/Applications/Mail.app",
+]);
+const calendar = resolveApplication("Calendar", "com.apple.iCal", [
+  "/System/Applications/Calendar.app",
+  "/Applications/Calendar.app",
+]);
+const reminders = resolveApplication("Reminders", "com.apple.reminders", [
+  "/System/Applications/Reminders.app",
+  "/Applications/Reminders.app",
+]);
 
 function dispatch(toolName, input) {
   switch (toolName) {
