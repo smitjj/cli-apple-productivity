@@ -14,6 +14,10 @@ from typing import Any, Optional
 from urllib.parse import unquote
 
 from apple_productivity_registry import KNOWN_TOOLS
+from apple_productivity_workflows import (
+    run_mail_newsletters_workflow,
+    run_mail_triage_workflow,
+)
 from shared_validation import validate_tool_arguments
 
 try:
@@ -287,7 +291,14 @@ class AppleProductivityService:
     ) -> None:
         self.timeout_seconds = timeout_seconds if timeout_seconds is not None else _env_timeout()
         self.logger = logger if logger is not None else _build_default_logger()
-        self.script_path = script_path if script_path is not None else SCRIPT_PATH
+        self.script_path = (script_path if script_path is not None else SCRIPT_PATH).resolve()
+        if not self.script_path.is_file():
+            raise RuntimeError(
+                "Mail automation script missing at "
+                f"{self.script_path}. Reinstall or upgrade the Apple Productivity "
+                "plugin, then restart Codex so the MCP server reloads from the "
+                "current plugin cache."
+            )
         self.scope_cache = MessageScopeCache()
         self.read_only = read_only if read_only is not None else _env_bool(READ_ONLY_ENV_VAR, False)
         if use_persistent_worker is None:
@@ -330,6 +341,14 @@ class AppleProductivityService:
             return self._delete_calendar_event_via_applescript(args["event_id"])
         if tool_name == "mail_messages":
             return self._dispatch_mail_messages(args)
+        if tool_name == "mail_analyze":
+            return self._dispatch_mail_analyze(args)
+        if tool_name == "mail_permissions_check":
+            result = self._invoke_jxa(tool_name, args)
+            if isinstance(result, dict):
+                result = dict(result)
+                result["envelope_index"] = self._envelope_index_diagnostic()
+            return result
         return self._invoke_jxa(tool_name, args)
 
     def _get_eventkit(self):
@@ -547,7 +566,29 @@ class AppleProductivityService:
                 raise
 
         self._update_scope_cache(action, args, result)
-        return result
+        return _annotate_mail_read_source(action, result, "jxa")
+
+    def _envelope_index_diagnostic(self) -> dict:
+        if not _env_bool(MAIL_INDEX_ENV_VAR, True):
+            return {"ok": False, "error": "disabled by APPLE_PRODUCTIVITY_MAIL_INDEX=0"}
+        if MailIndexReader is None:
+            return {"ok": False, "error": "Mail index module unavailable"}
+        reader = MailIndexReader.open_default(logger=self.logger)
+        if reader is None:
+            return {"ok": False, "error": "Envelope Index unavailable"}
+        try:
+            path = str(reader.db_path)
+        finally:
+            reader.close()
+        return {"ok": True, "error": None, "path": path}
+
+    def _dispatch_mail_analyze(self, args: dict) -> Any:
+        action = args.get("action")
+        if action == "triage":
+            return run_mail_triage_workflow(self, args)
+        if action == "newsletters":
+            return run_mail_newsletters_workflow(self, args)
+        raise RuntimeError(f"Unsupported mail_analyze action: {action}")
 
     def _update_scope_cache(self, action: str, args: dict, result: Any) -> None:
         if not isinstance(result, (dict, list)):
@@ -768,6 +809,16 @@ def _iso_to_epoch_or_none(value: str) -> Optional[float]:
         return None
 
 
+def _annotate_mail_read_source(action: str, result: Any, source: str) -> Any:
+    if action not in {"list", "search", "get-thread"} or not isinstance(result, dict):
+        return result
+    if result.get("source"):
+        return result
+    annotated = dict(result)
+    annotated["source"] = source
+    return annotated
+
+
 def _row_to_summary(row: dict) -> dict:
     """Build a message summary from an Envelope Index row.
 
@@ -827,6 +878,8 @@ def _is_mutating(tool_name: str, args: dict) -> bool:
     if tool_name == "mail_drafts":
         return args.get("action") not in {"list", "get"}
     if tool_name == "mail_permissions_check":
+        return False
+    if tool_name == "mail_analyze":
         return False
     action = args.get("action")
     if action in _READ_ONLY_ACTIONS:

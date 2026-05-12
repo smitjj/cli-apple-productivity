@@ -27,6 +27,7 @@ EMAIL_DOMAIN_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:
 MAIL_MESSAGE_ACTIONS = set(TOOL_BY_NAME["mail_messages"].actions)
 MAIL_COMPOSE_ACTIONS = set(TOOL_BY_NAME["mail_compose"].actions)
 MAIL_DRAFT_ACTIONS = set(TOOL_BY_NAME["mail_drafts"].actions)
+MAIL_ANALYZE_ACTIONS = set(TOOL_BY_NAME["mail_analyze"].actions)
 CALENDAR_EVENT_ACTIONS = set(TOOL_BY_NAME["calendar_events"].actions)
 REMINDER_LIST_ACTIONS = set(TOOL_BY_NAME["reminders_lists"].actions)
 REMINDER_TASK_ACTIONS = set(TOOL_BY_NAME["reminders_tasks"].actions)
@@ -54,6 +55,9 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
         return
     if tool_name == "mail_drafts":
         validate_mail_drafts(arguments)
+        return
+    if tool_name == "mail_analyze":
+        validate_mail_analyze(arguments)
         return
     if tool_name == "mail_permissions_check":
         validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
@@ -228,6 +232,20 @@ def validate_mail_drafts(arguments: dict) -> None:
     if action == "update":
         validate_string(arguments, "subject", max_length=5000)
         validate_string(arguments, "body", max_length=50000)
+
+
+def validate_mail_analyze(arguments: dict) -> None:
+    action = validate_action(arguments, MAIL_ANALYZE_ACTIONS)
+    validate_string(arguments, "mailbox_name")
+    validate_string(arguments, "account_name")
+    validate_string(arguments, "query", max_length=500)
+    validate_date(arguments, "since")
+    validate_integer(arguments, "limit")
+    validate_boolean(arguments, "unread_only")
+    validate_boolean(arguments, "flagged_only")
+    validate_boolean(arguments, "with_links")
+    if action == "newsletters" and arguments.get("with_links") and arguments.get("limit", 10) > 25:
+        raise RuntimeError("with_links accepts limit at most 25 per call.")
 
 
 def validate_message_id_list(arguments: dict, field: str, required: bool = False) -> None:

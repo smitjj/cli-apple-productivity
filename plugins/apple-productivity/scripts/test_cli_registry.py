@@ -12,6 +12,7 @@ from unittest import mock
 
 import apple_productivity_cli as cli
 import apple_productivity_mcp_server as mcp_server
+import apple_productivity_workflows as workflows
 from apple_productivity_registry import TOOL_SPECS, mcp_tools
 from shared_validation import validate_action, validate_tool_arguments
 
@@ -229,6 +230,42 @@ class CompoundSummaryTests(unittest.TestCase):
         self.assertEqual(result["result"]["args"]["action"], "open")
         self.assertEqual(result["result"]["args"]["mailbox_name"], "INBOX")
 
+    def test_mail_analyze_triage_workflow_uses_search_when_query_present(self):
+        class FakeService:
+            def __init__(self):
+                self.calls = []
+
+            def dispatch(self, tool, args):
+                self.calls.append((tool, args))
+                return {"messages": []}
+
+        service = FakeService()
+        result = workflows.run_mail_triage_workflow(
+            service,
+            {"mailbox_name": "INBOX", "query": "invoice", "limit": 5},
+        )
+        self.assertEqual(result["workflow"], "mail.triage")
+        self.assertEqual(
+            service.calls,
+            [("mail_messages", {"action": "search", "limit": 5, "query": "invoice", "mailbox_name": "INBOX"})],
+        )
+
+    def test_mail_analyze_newsletters_workflow_can_fetch_links(self):
+        class FakeService:
+            def dispatch(self, tool, args):
+                if tool == "mail_messages" and args["action"] == "search":
+                    return {"messages": [{"id": 7, "subject": "News"}]}
+                if tool == "mail_messages" and args["action"] == "get-unsubscribe-link":
+                    return {"found": True, "oneClickPost": True}
+                raise AssertionError((tool, args))
+
+        result = workflows.run_mail_newsletters_workflow(
+            FakeService(),
+            {"query": "unsubscribe", "limit": 1, "with_links": True},
+        )
+        self.assertEqual(result["workflow"], "mail.newsletters")
+        self.assertEqual(result["summary"]["withUnsubscribe"], 1)
+
 
 class CliSubprocessTests(unittest.TestCase):
     def test_help_exits_zero(self):
@@ -330,7 +367,7 @@ class McpMetadataTests(unittest.TestCase):
         capabilities = response["result"]["capabilities"]
         server_info = response["result"]["serverInfo"]
         self.assertEqual(server_info["name"], "apple-productivity")
-        self.assertEqual(server_info["version"], "0.5.3")
+        self.assertEqual(server_info["version"], "0.5.5")
         self.assertEqual(capabilities["tools"]["listChanged"], False)
 
     def test_initialize_echoes_client_protocol_version(self):

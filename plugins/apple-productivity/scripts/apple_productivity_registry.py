@@ -71,6 +71,11 @@ GLOBAL_ARGUMENTS = {
     "save_to": ArgumentSpec("save_to", help="Absolute path where an attachment should be saved."),
     "return_inline": ArgumentSpec("return_inline", "boolean", help="Return attachment bytes inline as base64."),
     "dry_run": ArgumentSpec("dry_run", "boolean", help="Report what would change without mutating state."),
+    "with_links": ArgumentSpec(
+        "with_links",
+        "boolean",
+        help="Fetch List-Unsubscribe links for newsletter candidates.",
+    ),
     "to": ArgumentSpec("to", help="Recipient address. Repeatable.", multiple=True),
     "cc": ArgumentSpec("cc", help="CC address. Repeatable.", multiple=True),
     "bcc": ArgumentSpec("bcc", help="BCC address. Repeatable.", multiple=True),
@@ -194,6 +199,16 @@ TOOL_SPECS = (
         ("list", "get", "update", "send", "delete"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "message_id", "account_name", "mailbox_name", "subject", "body", "limit", "dry_run",
+        )),
+    ),
+    ToolSpec(
+        "mail_analyze",
+        "mail-analyze",
+        "Summary-first Mail triage and newsletter/unsubscribe analysis.",
+        ("triage", "newsletters"),
+        tuple(GLOBAL_ARGUMENTS[name] for name in (
+            "mailbox_name", "account_name", "query", "since", "limit", "unread_only",
+            "flagged_only", "with_links",
         )),
     ),
     ToolSpec(

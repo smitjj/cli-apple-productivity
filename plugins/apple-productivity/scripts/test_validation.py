@@ -414,6 +414,32 @@ class MailDraftsValidationTests(unittest.TestCase):
             validate_tool_arguments("mail_drafts", {"action": "send_now"})
 
 
+class MailAnalyzeValidationTests(unittest.TestCase):
+    def test_triage_accepts_filters(self):
+        validate_tool_arguments(
+            "mail_analyze",
+            {
+                "action": "triage",
+                "mailbox_name": "INBOX",
+                "unread_only": True,
+                "limit": 10,
+            },
+        )
+
+    def test_newsletters_accepts_with_links(self):
+        validate_tool_arguments(
+            "mail_analyze",
+            {"action": "newsletters", "query": "unsubscribe", "with_links": True, "limit": 10},
+        )
+
+    def test_newsletters_with_links_rejects_high_limit(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments(
+                "mail_analyze",
+                {"action": "newsletters", "with_links": True, "limit": 30},
+            )
+
+
 class PermissionsCheckTests(unittest.TestCase):
     def test_check_action_optional(self):
         validate_tool_arguments("mail_permissions_check", {})
@@ -511,6 +537,36 @@ class AlarmAndGeofenceTests(unittest.TestCase):
                 },
             },
         )
+
+
+class MailReadSourceTests(unittest.TestCase):
+    def test_service_rejects_missing_jxa_script(self):
+        from apple_productivity_service import AppleProductivityService
+        from pathlib import Path
+
+        with self.assertRaises(RuntimeError) as ctx:
+            AppleProductivityService(script_path=Path("/tmp/apple-productivity-missing-jxa.js"))
+        self.assertIn("Mail automation script missing", str(ctx.exception))
+
+    def test_annotate_mail_read_source_tags_jxa_reads(self):
+        from apple_productivity_service import _annotate_mail_read_source
+
+        annotated = _annotate_mail_read_source(
+            "search",
+            {"count": 1, "messages": []},
+            "jxa",
+        )
+        self.assertEqual(annotated["source"], "jxa")
+
+    def test_annotate_mail_read_source_preserves_existing_source(self):
+        from apple_productivity_service import _annotate_mail_read_source
+
+        annotated = _annotate_mail_read_source(
+            "search",
+            {"count": 1, "messages": [], "source": "envelope_index"},
+            "jxa",
+        )
+        self.assertEqual(annotated["source"], "envelope_index")
 
 
 class IsMutatingTests(unittest.TestCase):

@@ -17,10 +17,16 @@ from typing import Any, Iterable, Optional
 
 from apple_productivity_registry import ArgumentSpec, TOOL_SPECS, ToolSpec
 from apple_productivity_service import AppleProductivityService
+from apple_productivity_workflows import (
+    run_mail_newsletters_workflow,
+    run_mail_triage_workflow,
+    summarize_mail_messages,
+    summarize_newsletters,
+)
 
 
 PROJECT_NAME = "Apple Productivity CLI"
-PROJECT_VERSION = "0.5.3"
+PROJECT_VERSION = "0.5.5"
 PROJECT_REPOSITORY = "https://github.com/smitjj/cli-apple-productivity"
 PROJECT_LICENSE = "Apache-2.0"
 PROJECT_OWNER = "smitjj"
@@ -265,63 +271,27 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
             "result": result,
         }
     if compound == "mail-triage":
-        if namespace.query or namespace.since:
-            args = {
-                "action": "search",
-                "limit": namespace.limit,
-            }
-            _maybe(args, "query", namespace.query)
-            _maybe(args, "since", namespace.since)
-            _maybe(args, "account_name", namespace.account_name)
-            _maybe(args, "mailbox_name", namespace.mailbox_name)
-            if namespace.unread_only:
-                args["unread_only"] = True
-            if namespace.flagged_only:
-                args["flagged_only"] = True
-            result = service.dispatch("mail_messages", args)
-        else:
-            args = {
-                "action": "list",
+        return run_mail_triage_workflow(
+            service,
+            {
                 "mailbox_name": namespace.mailbox_name,
+                "account_name": namespace.account_name,
+                "query": namespace.query,
+                "since": namespace.since,
                 "limit": namespace.limit,
-            }
-            _maybe(args, "account_name", namespace.account_name)
-            if namespace.unread_only:
-                args["unread_only"] = True
-            if namespace.flagged_only:
-                args["flagged_only"] = True
-            result = service.dispatch("mail_messages", args)
-        return {"workflow": "mail.triage", "summary": summarize_mail_messages(result), "result": result}
-    if compound == "mail-newsletters":
-        search = service.dispatch(
-            "mail_messages",
-            {"action": "search", "query": namespace.query, "limit": namespace.limit},
+                "unread_only": namespace.unread_only,
+                "flagged_only": namespace.flagged_only,
+            },
         )
-        if not namespace.with_links:
-            return {
-                "workflow": "mail.newsletters",
-                "summary": summarize_mail_messages(search),
-                "candidates": search,
-            }
-        enriched = []
-        for message in search.get("messages", []):
-            item = {"message": message}
-            message_id = message.get("id")
-            if message_id is not None:
-                try:
-                    item["unsubscribe"] = service.dispatch(
-                        "mail_messages",
-                        {"action": "get-unsubscribe-link", "message_id": message_id},
-                    )
-                except Exception as exc:
-                    item["unsubscribeError"] = str(exc)
-            enriched.append(item)
-        return {
-            "workflow": "mail.newsletters",
-            "summary": summarize_newsletters(enriched),
-            "count": len(enriched),
-            "candidates": enriched,
-        }
+    if compound == "mail-newsletters":
+        return run_mail_newsletters_workflow(
+            service,
+            {
+                "query": namespace.query,
+                "limit": namespace.limit,
+                "with_links": namespace.with_links,
+            },
+        )
     if compound == "calendar-agenda":
         start = namespace.date_from or date.today().isoformat()
         end = namespace.date_to or (date.fromisoformat(start) + timedelta(days=max(1, namespace.days))).isoformat()
@@ -346,33 +316,6 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
             "reminders": reminders_result,
         }
     raise RuntimeError(f"Unknown compound command: {compound}")
-
-
-def summarize_mail_messages(result: Any) -> dict:
-    messages = extract_messages(result)
-    unread = sum(1 for item in messages if item.get("read") is False)
-    flagged = sum(1 for item in messages if item.get("flagged") is True)
-    with_attachments = sum(1 for item in messages if item.get("attachments"))
-    return {
-        "count": len(messages),
-        "unread": unread,
-        "flagged": flagged,
-        "withAttachments": with_attachments,
-        "oldestDateReceived": min_compact(item.get("dateReceived") for item in messages),
-        "newestDateReceived": max_compact(item.get("dateReceived") for item in messages),
-    }
-
-
-def summarize_newsletters(candidates: list[dict]) -> dict:
-    found = 0
-    one_click = 0
-    for item in candidates:
-        unsubscribe = item.get("unsubscribe") or {}
-        if unsubscribe.get("found"):
-            found += 1
-        if unsubscribe.get("oneClickPost"):
-            one_click += 1
-    return {"count": len(candidates), "withUnsubscribe": found, "withOneClickPost": one_click}
 
 
 def summarize_agenda(result: Any) -> dict:

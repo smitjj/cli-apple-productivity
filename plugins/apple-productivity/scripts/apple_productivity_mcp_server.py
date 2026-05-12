@@ -10,7 +10,7 @@ from apple_productivity_service import AppleProductivityService
 
 
 SERVER_NAME = "apple-productivity"
-SERVER_VERSION = "0.5.3"
+SERVER_VERSION = "0.5.5"
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS = mcp_tools()
 

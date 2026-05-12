@@ -1,6 +1,6 @@
 {
   "name": "apple-productivity",
-  "version": "0.5.3",
+  "version": "0.5.5",
   "description": "Control Apple Mail, Calendar, and Reminders on macOS through a CLI-first local service with an MCP adapter.",
   "author": {
     "name": "smitjj",
@@ -20,6 +20,7 @@
     "automation",
     "mcp"
   ],
+  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Apple Productivity",
@@ -36,6 +37,7 @@
     "privacyPolicyURL": "https://github.com/smitjj/cli-apple-productivity",
     "termsOfServiceURL": "https://github.com/smitjj/cli-apple-productivity",
     "defaultPrompt": [
+      "Use Apple Productivity only; prefer search and aggregate tools; do not use raw osascript on Mail; run doctor when reads are slow or empty.",
       "Summarize unread messages from my main inbox",
       "Draft an email in Apple Mail to my team",
       "Create a reminder and a calendar event for next week"
