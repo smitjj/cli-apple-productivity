@@ -441,6 +441,17 @@ class MailAnalyzeValidationTests(unittest.TestCase):
                 {"action": "newsletters", "with_links": True, "limit": 30},
             )
 
+    def test_classify_accepts_mailbox_scope(self):
+        validate_tool_arguments(
+            "mail_analyze",
+            {
+                "action": "classify",
+                "mailbox_name": "INBOX",
+                "account_name": "Host Africa",
+                "unread_only": True,
+            },
+        )
+
 
 class PermissionsCheckTests(unittest.TestCase):
     def test_check_action_optional(self):

@@ -18,6 +18,7 @@ from typing import Any, Iterable, Optional
 from apple_productivity_registry import ArgumentSpec, TOOL_SPECS, ToolSpec
 from apple_productivity_service import AppleProductivityService
 from apple_productivity_workflows import (
+    run_mail_classify_workflow,
     run_mail_newsletters_workflow,
     run_mail_triage_workflow,
     summarize_mail_messages,
@@ -108,6 +109,15 @@ def build_parser() -> argparse.ArgumentParser:
     newsletters.add_argument("--query", default="unsubscribe")
     newsletters.add_argument("--limit", type=int, default=10)
     newsletters.add_argument("--with-links", action="store_true", help="Fetch List-Unsubscribe links for candidates.")
+
+    classify = mail_sub.add_parser("classify", help="Summarize likely automated vs human mail from the Envelope Index.")
+    _add_runtime_flags(classify)
+    classify.set_defaults(kind="compound", compound="mail-classify")
+    classify.add_argument("--mailbox-name", default="INBOX")
+    classify.add_argument("--account-name")
+    classify.add_argument("--since")
+    classify.add_argument("--unread-only", action="store_true")
+    classify.add_argument("--flagged-only", action="store_true")
 
     thread = mail_sub.add_parser("thread", help="Fetch a message thread.")
     _add_runtime_flags(thread)
@@ -290,6 +300,17 @@ def run_compound(namespace: argparse.Namespace, service: AppleProductivityServic
                 "query": namespace.query,
                 "limit": namespace.limit,
                 "with_links": namespace.with_links,
+            },
+        )
+    if compound == "mail-classify":
+        return run_mail_classify_workflow(
+            service,
+            {
+                "mailbox_name": namespace.mailbox_name,
+                "account_name": namespace.account_name,
+                "since": namespace.since,
+                "unread_only": namespace.unread_only,
+                "flagged_only": namespace.flagged_only,
             },
         )
     if compound == "calendar-agenda":
@@ -595,7 +616,7 @@ def print_completion(shell: str) -> None:
             *[spec.cli_name for spec in TOOL_SPECS],
         ]
     )
-    mail_commands = "triage newsletters thread open move archive"
+    mail_commands = "triage newsletters classify thread open move archive"
     calendar_commands = "agenda"
     day_commands = "plan"
     if shell == "bash":

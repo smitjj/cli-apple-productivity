@@ -56,6 +56,28 @@ def summarize_newsletters(candidates: list[dict]) -> dict:
     return {"count": len(candidates), "withUnsubscribe": found, "withOneClickPost": one_click}
 
 
+def summarize_automation_classification(payload: dict) -> dict:
+    by_signal = {0: 0, 1: 0, 2: 0}
+    for row in payload.get("signals", []):
+        signal = int(row.get("signal", -1))
+        if signal in by_signal:
+            by_signal[signal] = int(row.get("count") or 0)
+    total = sum(by_signal.values())
+    return {
+        "total": total,
+        "automatedConversation": {
+            "0": {"count": by_signal[0], "label": "likelyHuman"},
+            "1": {"count": by_signal[1], "label": "ambiguous"},
+            "2": {"count": by_signal[2], "label": "likelyAutomated"},
+        },
+        "collapsed": {
+            "likelyHuman": by_signal[0],
+            "ambiguous": by_signal[1],
+            "likelyAutomated": by_signal[2],
+        },
+    }
+
+
 def _maybe(args: dict, key: str, value: Any) -> None:
     if value is not None:
         args[key] = value
@@ -124,4 +146,18 @@ def run_mail_newsletters_workflow(service: MailWorkflowService, arguments: dict)
         "count": len(enriched),
         "candidates": enriched,
         **({"source": search["source"]} if isinstance(search, dict) and search.get("source") else {}),
+    }
+
+
+def run_mail_classify_workflow(service: MailWorkflowService, arguments: dict) -> dict:
+    classify = getattr(service, "classify_received_aggregate", None)
+    if classify is None:
+        raise RuntimeError("Mail classify requires the Apple Productivity service.")
+    payload = classify(arguments)
+    return {
+        "workflow": "mail.classify",
+        "summary": payload["summary"],
+        "scope": payload.get("scope"),
+        "signals": payload.get("signals"),
+        "source": payload.get("source", "envelope_index"),
     }

@@ -216,6 +216,65 @@ class MailIndexBehaviorTests(unittest.TestCase):
         self.assertEqual(rows[0]["rowid"], 100)
 
 
+class MailIndexAutomationClassifyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "Envelope Index"
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE mailboxes (
+              ROWID INTEGER PRIMARY KEY,
+              url TEXT
+            );
+            CREATE TABLE messages (
+              ROWID INTEGER PRIMARY KEY,
+              message_id TEXT,
+              subject TEXT,
+              sender TEXT,
+              date_sent REAL,
+              date_received REAL,
+              mailbox INTEGER,
+              read INTEGER,
+              flagged INTEGER,
+              automated_conversation INTEGER
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO mailboxes (ROWID, url) VALUES (1, 'imap://3AE968BD-19BC-44B5-A14D-39791781DE37/INBOX')"
+        )
+        conn.executemany(
+            """
+            INSERT INTO messages
+              (ROWID, message_id, subject, sender, date_sent, date_received, mailbox, read, flagged, automated_conversation)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (100, "<a@example.com>", "Human", "alice@example.com", 1, 3, 1, 0, 0, 0),
+                (101, "<b@example.com>", "Ambiguous", "bob@example.com", 1, 4, 1, 0, 0, 1),
+                (102, "<c@example.com>", "Automated", "noreply@example.com", 1, 5, 1, 0, 0, 2),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        self.reader = MailIndexReader(self.db_path)
+        self.reader._connect()
+        self.reader._probe_schema()
+
+    def tearDown(self):
+        self.reader.close()
+        self.tmp.cleanup()
+
+    def test_classify_received_aggregate_counts_signals(self):
+        payload = self.reader.classify_received_aggregate(
+            mailbox_name="INBOX",
+            account_url_hints=["3AE968BD-19BC-44B5-A14D-39791781DE37"],
+        )
+        counts = {int(row["signal"]): int(row["count"]) for row in payload["signals"]}
+        self.assertEqual(counts, {0: 1, 1: 1, 2: 1})
+
+
 class MailIndexAccountScopeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

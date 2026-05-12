@@ -205,8 +205,8 @@ TOOL_SPECS = (
     ToolSpec(
         "mail_analyze",
         "mail-analyze",
-        "Summary-first Mail triage and newsletter/unsubscribe analysis.",
-        ("triage", "newsletters"),
+        "Summary-first Mail triage, newsletter/unsubscribe analysis, and index-backed automation classification.",
+        ("triage", "newsletters", "classify"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
             "mailbox_name", "account_name", "query", "since", "limit", "unread_only",
             "flagged_only", "with_links",

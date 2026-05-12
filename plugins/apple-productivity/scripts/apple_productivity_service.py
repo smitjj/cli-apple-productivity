@@ -15,8 +15,10 @@ from urllib.parse import unquote
 
 from apple_productivity_registry import KNOWN_TOOLS
 from apple_productivity_workflows import (
+    run_mail_classify_workflow,
     run_mail_newsletters_workflow,
     run_mail_triage_workflow,
+    summarize_automation_classification,
 )
 from shared_validation import (
     normalize_mail_mailbox_scope,
@@ -572,6 +574,52 @@ class AppleProductivityService:
             source="envelope_index",
         )
 
+    def classify_received_aggregate(self, arguments: dict) -> dict:
+        scoped = self._index_scoped_mail_args({"action": "list", **arguments})
+        payload = self._try_classify_received_via_index(scoped)
+        if payload is None:
+            raise RuntimeError(
+                "Envelope Index classify is unavailable for this mailbox scope. "
+                "Run mail_permissions_check (doctor) and verify envelope_index.ok."
+            )
+        return payload
+
+    def _try_classify_received_via_index(self, args: dict) -> Optional[dict]:
+        reader = self._get_mail_index()
+        if reader is None:
+            return None
+        account_url_hints = self._index_account_url_hints(reader, args.get("account_name"))
+        since_epoch = None
+        since = args.get("since")
+        if since:
+            since_epoch = reader.iso_to_index_epoch(since)
+            if since_epoch is None:
+                return None
+        try:
+            payload = reader.classify_received_aggregate(
+                mailbox_name=args.get("mailbox_name") or "INBOX",
+                account_name=args.get("account_name"),
+                account_url_hints=account_url_hints,
+                since_epoch=since_epoch,
+                unread_only=bool(args.get("unread_only")),
+                flagged_only=bool(args.get("flagged_only")),
+            )
+        except MailIndexUnavailable as exc:
+            if self.logger:
+                self.logger.info("Mail index classify unavailable: %s", exc)
+            return None
+        except Exception as exc:
+            if self.logger:
+                self.logger.info("Mail index classify raised: %s", exc)
+            return None
+        summary = summarize_automation_classification(payload)
+        return {
+            "summary": summary,
+            "scope": payload.get("scope"),
+            "signals": payload.get("signals"),
+            "source": "envelope_index",
+        }
+
     def _try_thread_via_index(self, args: dict):
         reader = self._get_mail_index()
         if reader is None:
@@ -673,6 +721,8 @@ class AppleProductivityService:
             return run_mail_triage_workflow(self, args)
         if action == "newsletters":
             return run_mail_newsletters_workflow(self, args)
+        if action == "classify":
+            return run_mail_classify_workflow(self, args)
         raise RuntimeError(f"Unsupported mail_analyze action: {action}")
 
     def _update_scope_cache(self, action: str, args: dict, result: Any) -> None:

@@ -14,6 +14,7 @@ description: >-
 - Prefer summary-first tools before raw message dumps:
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).
   - `mail_analyze` with `action: "newsletters"` for newsletter/unsubscribe candidates (CLI: `mail newsletters`).
+  - `mail_analyze` with `action: "classify"` for aggregate likely-automated vs likely-human counts from Mail's Envelope Index (CLI: `mail classify`). Read `summary` first; do not page the whole mailbox or query the Envelope Index directly for this.
 - Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
 - Do not invoke raw `osascript`, JXA, or other direct Mail automation outside this plugin.
 - If mail reads are slow, empty, or failing, run `mail_permissions_check` (CLI: `doctor`) before escalating or falling back to other approaches.
@@ -29,6 +30,7 @@ description: >-
 | --- | --- | --- |
 | Inbox triage / unread counts | `mail_analyze` → `triage` | `mail triage` |
 | Newsletter / unsubscribe scan | `mail_analyze` → `newsletters` | `mail newsletters` |
+| Automated vs human aggregate | `mail_analyze` → `classify` | `mail classify` |
 | Targeted lookup | `mail_messages` → `search` | `mail-messages search` |
 | Permissions / slow reads | `mail_permissions_check` | `doctor` |
 | Calendar day view | `calendar_events` → `list` | `calendar agenda` |
@@ -47,3 +49,11 @@ Common arguments: `mailbox_name`, `account_name`, `query`, `since`, `limit`, `un
 Use for bulk/marketing mail and unsubscribe discovery. Defaults `query` to `unsubscribe` and `limit` to 10.
 
 Set `with_links: true` only for a small candidate set (limit at most 25); it fetches `List-Unsubscribe` metadata per message.
+
+### `classify`
+
+Use for aggregate likely-automated vs likely-human counts over a mailbox scope. Defaults to mailbox `INBOX` when omitted. This action is Envelope Index-backed; it does not page individual messages.
+
+Common arguments: `mailbox_name`, `account_name`, `since`, `unread_only`, `flagged_only`.
+
+Read `summary.collapsed` first (`likelyHuman`, `likelyAutomated`, `ambiguous`). Use `summary.automatedConversation` when you need raw Mail `automated_conversation` signal counts.

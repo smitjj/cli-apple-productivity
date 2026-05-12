@@ -288,6 +288,59 @@ class MailIndexReader:
             "messages": rows,
         }
 
+    def classify_received_aggregate(
+        self,
+        mailbox_name: Optional[str] = None,
+        account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
+        since_epoch: Optional[float] = None,
+        unread_only: bool = False,
+        flagged_only: bool = False,
+    ) -> dict:
+        """Count messages grouped by Mail's ``automated_conversation`` signal."""
+        assert self._conn is not None
+        if not self.has_column("automated_conversation"):
+            raise MailIndexUnavailable("messages.automated_conversation not present in this schema")
+        clauses = []
+        params: list = []
+        if since_epoch is not None:
+            clauses.append("m.date_received >= ?")
+            params.append(since_epoch)
+        if unread_only:
+            clauses.append("m.read = 0")
+        if flagged_only:
+            clauses.append("m.flagged = 1")
+        self._append_active_message_filters(clauses)
+        mailbox_filter = self._build_mailbox_filter(
+            mailbox_name,
+            account_name,
+            account_url_hints=account_url_hints,
+        )
+        if mailbox_filter is not None:
+            clauses.append(mailbox_filter[0])
+            params.extend(mailbox_filter[1])
+        sql_parts = [
+            "SELECT m.automated_conversation AS signal, COUNT(*) AS count",
+            "FROM messages m",
+        ]
+        if clauses:
+            sql_parts.append("WHERE " + " AND ".join(clauses))
+        sql_parts.append("GROUP BY m.automated_conversation")
+        try:
+            rows = self._conn.execute("\n".join(sql_parts), params).fetchall()
+        except sqlite3.Error as exc:
+            raise MailIndexUnavailable(f"classify aggregate query failed: {exc}") from exc
+        return {
+            "scope": {
+                "mailbox": mailbox_name,
+                "account": account_name,
+                "sinceEpoch": since_epoch,
+                "unreadOnly": unread_only,
+                "flaggedOnly": flagged_only,
+            },
+            "signals": [dict(row) for row in rows],
+        }
+
     def list_thread(self, message_id_header: str, limit: int = 100) -> list:
         """Return all messages in the same conversation as the given Message-ID
         header. Requires the optional ``conversation_id`` column."""
