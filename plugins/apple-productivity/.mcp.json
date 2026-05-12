@@ -1,10 +1,8 @@
 {
   "mcpServers": {
     "apple-productivity": {
-      "command": "python3",
-      "args": [
-        "./scripts/apple_productivity_mcp_server.py"
-      ],
+      "command": "./apple-productivity-mcp",
+      "args": [],
       "cwd": "."
     }
   }
