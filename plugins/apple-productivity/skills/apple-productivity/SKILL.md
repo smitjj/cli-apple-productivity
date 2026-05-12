@@ -3,8 +3,8 @@ name: apple-productivity
 description: >-
   Use the Apple Productivity MCP server and CLI for Mail, Calendar, and Reminders
   on macOS. Apply for inbox triage, newsletter analysis, automated-vs-human mail
-  classification, search, drafting, calendar and reminder tasks, and when macOS
-  Apple app automation is requested.
+  classification, Mail folder create/rename, search, drafting, calendar and reminder
+  tasks, and when macOS Apple app automation is requested.
 ---
 
 # Apple Productivity

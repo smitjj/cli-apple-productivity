@@ -4,7 +4,7 @@ A CLI-first local interface for Apple Mail, Apple Calendar, and Apple Reminders 
 
 ## What it supports
 
-- Apple Mail: account, mailbox, message, draft, reply, forward, move, delete, flag, read/unread, open, attachment download, bulk operations, thread retrieval, unsubscribe-link extraction
+- Apple Mail: account, mailbox, message, draft, reply, forward, move, delete, flag, read/unread, open, attachment download, bulk operations, thread retrieval, unsubscribe-link extraction, mailbox folder create/rename
 - Apple Calendar: calendar and event read/write/delete/open with EventKit-only fields (recurrence rule, alarms, timezone, source disambiguation)
 - Apple Reminders: list and task read/write/delete/complete with priority, flagged, alarms, geofence triggers
 - One registry-driven CLI surface across all three apps, plus compound workflows for triage, agenda, day planning, and diagnostics
@@ -257,6 +257,8 @@ Each tool has a single `action` field. Below, **bold** args are required for tha
 | action | args | returns |
 | --- | --- | --- |
 | `list` | `account_name?`, `include_counts?` | per-account `{account, mailboxes[]}` |
+| `create` | **`account_name`**, **`mailbox_name`**, `parent_mailbox?`, `dry_run?` | `{created, mailbox{name, path, account}}` |
+| `rename` | **`account_name`**, **`mailbox_name`**, **`name`**, `dry_run?` | `{renamed, mailbox{name, path, account}}` |
 
 ### `mail_messages`
 
@@ -379,6 +381,8 @@ The CLI wraps the same service that backs the MCP server. No JSON-RPC, no subpro
 ./apple-productivity mail-accounts list
 ./apple-productivity about --pretty
 ./apple-productivity mail-mailboxes list --account-name iCloud --include-counts
+./apple-productivity mail-mailboxes create --account-name iCloud --mailbox-name Reports
+./apple-productivity mail-mailboxes rename --account-name iCloud --mailbox-name Reports --name "Reports 2026"
 ./apple-productivity mail-messages list --mailbox-name INBOX --limit 5
 ./apple-productivity mail-messages search --query invoice --since 2026-01-01
 ./apple-productivity mail-compose create --to alice@example.com --subject Hi --body hello
