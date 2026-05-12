@@ -81,5 +81,59 @@ class MailIndexReaderTests(unittest.TestCase):
         self.assertEqual([row["rowid"] for row in rows], [100, 101])
 
 
+class MailIndexAddressFkTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "Envelope Index"
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE addresses (
+              ROWID INTEGER PRIMARY KEY,
+              address TEXT,
+              comment TEXT
+            );
+            CREATE TABLE messages (
+              ROWID INTEGER PRIMARY KEY,
+              message_id TEXT,
+              subject TEXT,
+              sender INTEGER,
+              date_sent REAL,
+              date_received REAL,
+              mailbox INTEGER,
+              read INTEGER,
+              flagged INTEGER
+            );
+            """
+        )
+        conn.executemany(
+            "INSERT INTO addresses (ROWID, address, comment) VALUES (?, ?, ?)",
+            [(1, "werner@hostafrica.com", "Werner Moller")],
+        )
+        conn.execute(
+            """
+            INSERT INTO messages
+              (ROWID, message_id, subject, sender, date_sent, date_received, mailbox, read, flagged)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (100, "<a@example.com>", "Re: Churn & Cohort Analysis", 1, 1, 3, 1, 0, 0),
+        )
+        conn.commit()
+        conn.close()
+        self.reader = MailIndexReader(self.db_path)
+        self.reader._connect()
+        self.reader._probe_schema()
+
+    def tearDown(self):
+        self.reader.close()
+        self.tmp.cleanup()
+
+    def test_sender_name_and_address_search(self):
+        rows = self.reader.search_messages(query="Werner", limit=10)
+        self.assertEqual([row["rowid"] for row in rows], [100])
+        rows = self.reader.search_messages(from_address="werner@hostafrica.com", limit=10)
+        self.assertEqual([row["rowid"] for row in rows], [100])
+
+
 if __name__ == "__main__":
     unittest.main()

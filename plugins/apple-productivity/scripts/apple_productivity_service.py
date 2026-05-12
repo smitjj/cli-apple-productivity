@@ -820,6 +820,19 @@ def _annotate_mail_read_source(action: str, result: Any, source: str) -> Any:
     return annotated
 
 
+def _format_index_sender(row: dict) -> Any:
+    sender = row.get("sender")
+    address = row.get("sender_address")
+    comment = row.get("sender_comment")
+    if address is None and comment is None:
+        return sender
+    address = address or ""
+    comment = comment or ""
+    if comment and address:
+        return f"{comment} <{address}>"
+    return address or comment or sender
+
+
 def _row_to_summary(row: dict) -> dict:
     """Build a message summary from an Envelope Index row.
 
@@ -832,7 +845,7 @@ def _row_to_summary(row: dict) -> dict:
         "id": row.get("rowid"),
         "messageId": row.get("message_id"),
         "subject": row.get("subject"),
-        "sender": row.get("sender"),
+        "sender": _format_index_sender(row),
         "read": bool(row.get("read")) if row.get("read") is not None else None,
         "flagged": bool(row.get("flagged")) if row.get("flagged") is not None else None,
         "dateReceived": _apple_epoch_to_iso(row.get("date_received")),

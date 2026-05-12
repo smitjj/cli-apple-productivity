@@ -45,6 +45,7 @@ _OPTIONAL_MESSAGES_COLUMNS = {
     "conversation_id",
     "size",
     "snippet",
+    "summary",
     "encoding",
 }
 
@@ -70,6 +71,7 @@ class MailIndexReader:
         self._conn: Optional[sqlite3.Connection] = None
         self._messages_columns: set = set()
         self._table_names: set = set()
+        self._sender_address_fk = False
 
     # ------------------------------------------------------------------
     # Construction / availability
@@ -126,6 +128,13 @@ class MailIndexReader:
         missing = _REQUIRED_MESSAGES_COLUMNS - self._messages_columns
         if missing:
             raise MailIndexUnavailable(f"messages table missing columns: {sorted(missing)}")
+        col_types = {row["name"]: (row["type"] or "").upper() for row in col_rows}
+        if "addresses" in self._table_names:
+            address_cols = {
+                row["name"]
+                for row in self._conn.execute("PRAGMA table_info('addresses')").fetchall()
+            }
+            self._sender_address_fk = "address" in address_cols and col_types.get("sender") == "INTEGER"
 
     # ------------------------------------------------------------------
     # Lifecycle / introspection
@@ -177,22 +186,25 @@ class MailIndexReader:
             return f"%{value.lower()}%"
 
         if query:
-            # Search across subject + sender + snippet (if present).
-            sub_clauses = ["LOWER(m.subject) LIKE ?", "LOWER(m.sender) LIKE ?"]
-            params.extend([like(query), like(query)])
-            if self.has_column("snippet"):
-                sub_clauses.append("LOWER(m.snippet) LIKE ?")
-                params.append(like(query))
-            clauses.append("(" + " OR ".join(sub_clauses) + ")")
+            self._append_text_search(clauses, params, query)
         if from_address:
             needle = like(from_address)
-            sender_clauses = ["LOWER(m.sender) LIKE ?"]
-            sender_params = [needle]
-            if self.has_column("snippet"):
-                sender_clauses.append("LOWER(m.snippet) LIKE ?")
+            sender_clauses = []
+            sender_params: list = []
+            if self._sender_address_fk:
+                sender_clauses.append(
+                    "(LOWER(sender_addr.address) LIKE ? OR LOWER(COALESCE(sender_addr.comment,'')) LIKE ?)"
+                )
+                sender_params.extend([needle, needle])
+            else:
+                sender_clauses.append("LOWER(m.sender) LIKE ?")
                 sender_params.append(needle)
             sender_clauses.append("LOWER(m.subject) LIKE ?")
             sender_params.append(needle)
+            body_expr = self._body_search_expr()
+            if body_expr:
+                sender_clauses.append(f"{body_expr} LIKE ?")
+                sender_params.append(needle)
             clauses.append("(" + " OR ".join(sender_clauses) + ")")
             params.extend(sender_params)
         if subject_contains:
@@ -225,14 +237,24 @@ class MailIndexReader:
 
         sql_parts = [
             "SELECT m.ROWID AS rowid, m.message_id AS message_id, m.subject AS subject, "
-            "m.sender AS sender, m.date_received AS date_received, m.date_sent AS date_sent, "
+            f"{self._sender_select_expr()} AS sender, "
+            "m.date_received AS date_received, m.date_sent AS date_sent, "
             "m.mailbox AS mailbox_rowid, m.read AS read, m.flagged AS flagged"
         ]
+        if self._sender_address_fk:
+            sql_parts.append(
+                ", sender_addr.address AS sender_address, sender_addr.comment AS sender_comment"
+            )
         if self.has_column("snippet"):
             sql_parts.append(", m.snippet AS snippet")
+        elif self.has_column("summary"):
+            sql_parts.append(", m.summary AS snippet")
         if self.has_column("conversation_id"):
             sql_parts.append(", m.conversation_id AS conversation_id")
         sql_parts.append("FROM messages m")
+        sender_join = self._sender_join_sql()
+        if sender_join:
+            sql_parts.append(sender_join)
         if clauses:
             sql_parts.append("WHERE " + " AND ".join(clauses))
         sql_parts.append("ORDER BY m.date_received DESC")
@@ -313,6 +335,56 @@ class MailIndexReader:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _sender_join_sql(self) -> str:
+        if self._sender_address_fk:
+            return "LEFT JOIN addresses sender_addr ON sender_addr.ROWID = m.sender"
+        return ""
+
+    def _sender_select_expr(self) -> str:
+        if self._sender_address_fk:
+            return (
+                "CASE WHEN COALESCE(sender_addr.comment, '') != '' "
+                "THEN TRIM(sender_addr.comment || ' <' || sender_addr.address || '>') "
+                "ELSE sender_addr.address END"
+            )
+        return "m.sender"
+
+    def _body_search_expr(self) -> Optional[str]:
+        if self.has_column("snippet"):
+            return "LOWER(m.snippet)"
+        if self.has_column("summary"):
+            return "LOWER(m.summary)"
+        return None
+
+    def _append_sender_search(self, clauses: list, params: list, value: str) -> None:
+        needle = f"%{value.lower()}%"
+        if self._sender_address_fk:
+            clauses.append(
+                "(LOWER(sender_addr.address) LIKE ? OR LOWER(COALESCE(sender_addr.comment,'')) LIKE ?)"
+            )
+            params.extend([needle, needle])
+        else:
+            clauses.append("LOWER(m.sender) LIKE ?")
+            params.append(needle)
+
+    def _append_text_search(self, clauses: list, params: list, query: str) -> None:
+        needle = f"%{query.lower()}%"
+        sub_clauses = ["LOWER(m.subject) LIKE ?"]
+        sub_params = [needle]
+        body_expr = self._body_search_expr()
+        if body_expr:
+            sub_clauses.append(f"{body_expr} LIKE ?")
+            sub_params.append(needle)
+        if self._sender_address_fk:
+            sub_clauses.append("LOWER(sender_addr.address) LIKE ?")
+            sub_clauses.append("LOWER(COALESCE(sender_addr.comment,'')) LIKE ?")
+            sub_params.extend([needle, needle])
+        else:
+            sub_clauses.append("LOWER(m.sender) LIKE ?")
+            sub_params.append(needle)
+        clauses.append("(" + " OR ".join(sub_clauses) + ")")
+        params.extend(sub_params)
 
     def _build_recipient_subquery(self, to_address: str):
         """Return (clause, params) for filtering by recipient address, or None
