@@ -166,7 +166,18 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 Restart Claude Desktop after saving.
 
-#### Codex CLI (OpenAI)
+#### Codex app / Codex CLI (OpenAI)
+
+If you're using the Codex app, the easiest setup path is the built-in Marketplace. You do not need to open this repo in Codex first if you're adding it from the Codex UI.
+
+1. Open the Marketplace / Plugins UI in Codex.
+2. Add or select this plugin/repository from the Codex UI.
+3. Install **Apple Productivity**.
+4. Approve the install prompts so Codex registers the local MCP server.
+
+This repo ships the required Codex plugin metadata in `plugins/apple-productivity/.codex-plugin/plugin.json`. It also includes a workspace marketplace entry at `.agents/plugins/marketplace.json`, so if the repo is open in Codex the plugin can also appear under the local workspace plugin list.
+
+You do not need to manually edit `~/.codex/config.toml` for the normal Codex app Marketplace flow.
 
 Edit `~/.codex/config.toml`:
 
@@ -176,7 +187,7 @@ command = "python3"
 args = ["/absolute/path/to/cli-apple-productivity/plugins/apple-productivity/scripts/apple_productivity_mcp_server.py"]
 ```
 
-This repo also ships a Codex marketplace entry at `.agents/plugins/marketplace.json`, so when running Codex from the repo root the plugin appears in the workspace plugin list and can be installed via the marketplace UI without editing config.toml.
+Use `~/.codex/config.toml` only if you want a manual or global install outside the Codex app Marketplace flow.
 
 For project-local config, use a relative path from `plugins/apple-productivity/.mcp.json` as shown above. For global `~/.codex/config.toml`, use an absolute path.
 
