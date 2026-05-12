@@ -211,6 +211,8 @@ function mailMailboxes(input) {
       return listMailMailboxes(input);
     case "create":
       return createMailMailbox(input);
+    case "rename":
+      return renameMailMailbox(input);
     default:
       throw new Error("Unsupported mail_mailboxes action: " + action);
   }
@@ -251,6 +253,27 @@ function createMailMailbox(input) {
     created: true,
     mailbox: {
       name: safeCall(function () { return resolved.name(); }, mailboxName),
+      path: path,
+      account: accountName,
+    },
+  };
+}
+
+function renameMailMailbox(input) {
+  const accountName = input.account_name;
+  if (!accountName) throw new Error("account_name is required");
+  const mailboxName = input.mailbox_name;
+  if (!mailboxName) throw new Error("mailbox_name is required");
+  const nextName = input.name;
+  if (!nextName) throw new Error("name is required");
+  const entry = resolveMailMailbox(mailboxName, accountName);
+  entry.mailbox.name = String(nextName);
+  const parentPath = entry.path.indexOf("/") >= 0 ? entry.path.split("/").slice(0, -1).join("/") : "";
+  const path = parentPath ? parentPath + "/" + nextName : nextName;
+  return {
+    renamed: true,
+    mailbox: {
+      name: safeCall(function () { return entry.mailbox.name(); }, nextName),
       path: path,
       account: accountName,
     },

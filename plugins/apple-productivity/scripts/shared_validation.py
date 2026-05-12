@@ -198,6 +198,9 @@ def validate_mail_mailboxes(arguments: dict) -> None:
     if action == "create":
         validate_string(arguments, "mailbox_name", required=True, max_length=500)
         validate_string(arguments, "parent_mailbox", max_length=500)
+    elif action == "rename":
+        validate_string(arguments, "mailbox_name", required=True, max_length=500)
+        validate_string(arguments, "name", required=True, max_length=500)
 
 
 def validate_mail_messages(arguments: dict) -> None:

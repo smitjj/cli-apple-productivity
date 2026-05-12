@@ -434,6 +434,17 @@ class MailMailboxValidationTests(unittest.TestCase):
                 {"action": "create", "account_name": "Host Africa"},
             )
 
+    def test_rename_requires_mailbox_name_and_new_name(self):
+        validate_tool_arguments(
+            "mail_mailboxes",
+            {
+                "action": "rename",
+                "account_name": "Host Africa",
+                "mailbox_name": "Reports",
+                "name": "Reports 2026",
+            },
+        )
+
 
 class MailAnalyzeValidationTests(unittest.TestCase):
     def test_triage_accepts_filters(self):
@@ -679,6 +690,7 @@ class IsMutatingTests(unittest.TestCase):
         from apple_productivity_service import _is_mutating
         self.assertTrue(_is_mutating("mail_messages", {"action": "delete"}))
         self.assertTrue(_is_mutating("mail_mailboxes", {"action": "create"}))
+        self.assertTrue(_is_mutating("mail_mailboxes", {"action": "rename"}))
         self.assertTrue(_is_mutating("mail_messages", {"action": "bulk-move"}))
         self.assertTrue(_is_mutating("mail_compose", {"action": "create"}))
         self.assertTrue(_is_mutating("mail_drafts", {"action": "send"}))

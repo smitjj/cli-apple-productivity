@@ -140,10 +140,10 @@ TOOL_SPECS = (
     ToolSpec(
         "mail_mailboxes",
         "mail-mailboxes",
-        "List or create Apple Mail mailboxes.",
-        ("list", "create"),
+        "List, create, or rename Apple Mail mailboxes.",
+        ("list", "create", "rename"),
         tuple(GLOBAL_ARGUMENTS[name] for name in (
-            "account_name", "mailbox_name", "parent_mailbox", "include_counts", "dry_run",
+            "account_name", "mailbox_name", "parent_mailbox", "name", "include_counts", "dry_run",
         )),
         action_required=False,
     ),
