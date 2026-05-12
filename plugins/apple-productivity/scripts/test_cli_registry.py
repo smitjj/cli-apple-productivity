@@ -330,8 +330,45 @@ class McpMetadataTests(unittest.TestCase):
         capabilities = response["result"]["capabilities"]
         server_info = response["result"]["serverInfo"]
         self.assertEqual(server_info["name"], "apple-productivity")
-        self.assertEqual(server_info["version"], "0.5.2")
+        self.assertEqual(server_info["version"], "0.5.3")
         self.assertEqual(capabilities["tools"]["listChanged"], False)
+
+    def test_initialize_echoes_client_protocol_version(self):
+        with mock.patch.object(mcp_server, "write_message") as write_message:
+            mcp_server.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {"protocolVersion": "2025-03-26"},
+                }
+            )
+        response = write_message.call_args.args[0]
+        self.assertEqual(response["result"]["protocolVersion"], "2025-03-26")
+
+    def test_stdio_newline_initialize_handshake(self):
+        script = os.path.join(os.path.dirname(__file__), "apple_productivity_mcp_server.py")
+        request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "0"},
+            },
+        }
+        completed = subprocess.run(
+            [sys.executable, script],
+            input=(json.dumps(request) + "\n").encode("utf-8"),
+            capture_output=True,
+            timeout=10,
+            cwd=os.path.dirname(script),
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr.decode("utf-8"))
+        response = json.loads(completed.stdout.decode("utf-8").splitlines()[0])
+        self.assertEqual(response["id"], 1)
+        self.assertEqual(response["result"]["serverInfo"]["name"], "apple-productivity")
 
 
 if __name__ == "__main__":

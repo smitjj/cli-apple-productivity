@@ -10,37 +10,57 @@ from apple_productivity_service import AppleProductivityService
 
 
 SERVER_NAME = "apple-productivity"
-SERVER_VERSION = "0.5.2"
+SERVER_VERSION = "0.5.3"
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS = mcp_tools()
 
 
 SERVICE = AppleProductivityService()
+USE_FRAMED_STDIO: bool | None = None
 
 
 def write_message(message: dict) -> None:
-    payload = json.dumps(message).encode("utf-8")
-    sys.stdout.buffer.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii"))
-    sys.stdout.buffer.write(payload)
+    payload = json.dumps(message, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    if USE_FRAMED_STDIO:
+        sys.stdout.buffer.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii"))
+        sys.stdout.buffer.write(payload)
+    else:
+        sys.stdout.buffer.write(payload)
+        sys.stdout.buffer.write(b"\n")
     sys.stdout.buffer.flush()
 
 
 def read_message():
-    headers = {}
+    global USE_FRAMED_STDIO
+
     while True:
         line = sys.stdin.buffer.readline()
         if not line:
             return None
         if line in (b"\r\n", b"\n"):
-            break
-        name, value = line.decode("utf-8").split(":", 1)
-        headers[name.strip().lower()] = value.strip()
+            continue
 
-    length = int(headers.get("content-length", "0"))
-    if length <= 0:
+        if line.startswith(b"{"):
+            USE_FRAMED_STDIO = False
+            return json.loads(line.decode("utf-8"))
+
+        if line.lower().startswith(b"content-length:"):
+            USE_FRAMED_STDIO = True
+            headers = {"content-length": line.split(b":", 1)[1].strip().decode("ascii")}
+            while True:
+                header_line = sys.stdin.buffer.readline()
+                if header_line in (b"\r\n", b"\n"):
+                    break
+                name, value = header_line.decode("utf-8").split(":", 1)
+                headers[name.strip().lower()] = value.strip()
+
+            length = int(headers.get("content-length", "0"))
+            if length <= 0:
+                return None
+            body = sys.stdin.buffer.read(length)
+            return json.loads(body.decode("utf-8"))
+
         return None
-    body = sys.stdin.buffer.read(length)
-    return json.loads(body.decode("utf-8"))
 
 
 def success_response(request_id, result) -> None:
@@ -57,10 +77,11 @@ def handle_request(message: dict) -> None:
     params = message.get("params", {})
 
     if method == "initialize":
+        negotiated_protocol = params.get("protocolVersion") or PROTOCOL_VERSION
         success_response(
             request_id,
             {
-                "protocolVersion": PROTOCOL_VERSION,
+                "protocolVersion": negotiated_protocol,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
                     "name": SERVER_NAME,
