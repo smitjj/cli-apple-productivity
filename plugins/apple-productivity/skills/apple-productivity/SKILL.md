@@ -2,8 +2,9 @@
 name: apple-productivity
 description: >-
   Use the Apple Productivity MCP server and CLI for Mail, Calendar, and Reminders
-  on macOS. Apply for inbox triage, newsletter analysis, search, drafting,
-  calendar and reminder tasks, and when macOS Apple app automation is requested.
+  on macOS. Apply for inbox triage, newsletter analysis, automated-vs-human mail
+  classification, search, drafting, calendar and reminder tasks, and when macOS
+  Apple app automation is requested.
 ---
 
 # Apple Productivity
@@ -15,12 +16,14 @@ description: >-
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).
   - `mail_analyze` with `action: "newsletters"` for newsletter/unsubscribe candidates (CLI: `mail newsletters`).
   - `mail_analyze` with `action: "classify"` for aggregate likely-automated vs likely-human counts from Mail's Envelope Index (CLI: `mail classify`). Read `summary` first; do not page the whole mailbox or query the Envelope Index directly for this.
+- For system-like vs human-like mail totals, use `mail_analyze` → `classify` before any `mail_messages` paging. Do not open Mail's Envelope Index with `sqlite3`, SQL, or shell for aggregate counts when `classify` is available.
+- Use `mail_permissions_check` (CLI: `doctor`) to confirm `envelope_index.path` when you need the index location; use `mail_analyze` → `classify` for the counts themselves.
 - Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
 - Do not invoke raw `osascript`, JXA, or other direct Mail automation outside this plugin.
 - If mail reads are slow, empty, or failing, run `mail_permissions_check` (CLI: `doctor`) before escalating or falling back to other approaches.
 - Respect per-call limits (`limit` max 100; `mail_analyze` with `with_links` max 25). Use `offset` and `nextOffset` on `mail_messages` list/search to page through large result sets.
 - Read `summary` first on `mail_analyze` responses; use `result` or `candidates` only when you need specific message ids or details.
-- On mail list/search/triage/newsletters payloads, top-level `"source": "envelope_index"` means Mail's Envelope Index handled the read; `"source": "jxa"` means the plugin fell back to JXA. If `source` is missing on a read payload, treat it as JXA.
+- On mail list/search/triage/newsletters/classify payloads, top-level `"source": "envelope_index"` means Mail's Envelope Index handled the read; `"source": "jxa"` means the plugin fell back to JXA. If `source` is missing on a read payload, treat it as JXA.
 - Run `mail_permissions_check` (CLI: `doctor`) when reads are slow or empty. Check `full_disk_access.ok` and `envelope_index.ok` before assuming the fast index path is available.
 - Set `APPLE_PRODUCTIVITY_LOG=/path/to/log` on the MCP host to see index-vs-JXA fallback lines when diagnosing silent slow reads.
 
