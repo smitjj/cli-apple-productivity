@@ -1,7 +1,7 @@
 {
-  "name": "local-workspace",
+  "name": "smitjj-apple-productivity",
   "interface": {
-    "displayName": "Local Workspace Plugins"
+    "displayName": "Apple Productivity"
   },
   "plugins": [
     {
