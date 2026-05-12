@@ -216,5 +216,59 @@ class MailIndexBehaviorTests(unittest.TestCase):
         self.assertEqual(rows[0]["rowid"], 100)
 
 
+class MailIndexUnixDateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.tmp.name) / "Envelope Index"
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript(
+            """
+            CREATE TABLE messages (
+              ROWID INTEGER PRIMARY KEY,
+              message_id TEXT,
+              subject TEXT,
+              sender TEXT,
+              date_sent REAL,
+              date_received REAL,
+              mailbox INTEGER,
+              read INTEGER,
+              flagged INTEGER
+            );
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO messages
+              (ROWID, message_id, subject, sender, date_sent, date_received, mailbox, read, flagged)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (100, "<a@example.com>", "Newer", "werner@hostafrica.com", 1, 1778577960, 1, 0, 0),
+                (101, "<b@example.com>", "Older", "werner@hostafrica.com", 1, 1770000000, 1, 0, 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+        self.reader = MailIndexReader(self.db_path)
+        self.reader._connect()
+        self.reader._probe_schema()
+
+    def tearDown(self):
+        self.reader.close()
+        self.tmp.cleanup()
+
+    def test_probe_detects_unix_dates(self):
+        self.assertTrue(self.reader._date_stored_as_unix)
+
+    def test_since_filter_uses_unix_epoch(self):
+        since_epoch = self.reader.iso_to_index_epoch("2026-05-12")
+        rows = self.reader.search_messages(
+            from_address="werner@hostafrica.com",
+            since_epoch=since_epoch,
+            limit=10,
+        )
+        self.assertEqual([row["rowid"] for row in rows], [100])
+
+
 if __name__ == "__main__":
     unittest.main()

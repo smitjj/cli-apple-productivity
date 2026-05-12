@@ -440,7 +440,7 @@ class AppleProductivityService:
         since_epoch = None
         since = args.get("since")
         if since:
-            since_epoch = _iso_to_epoch_or_none(since)
+            since_epoch = reader.iso_to_index_epoch(since)
             if since_epoch is None:
                 return None
         try:
@@ -880,8 +880,8 @@ def _row_to_summary(row: dict) -> dict:
         "sender": _format_index_sender(row),
         "read": bool(row.get("read")) if row.get("read") is not None else None,
         "flagged": bool(row.get("flagged")) if row.get("flagged") is not None else None,
-        "dateReceived": _apple_epoch_to_iso(row.get("date_received")),
-        "dateSent": _apple_epoch_to_iso(row.get("date_sent")),
+        "dateReceived": _index_timestamp_to_iso(row.get("date_received")),
+        "dateSent": _index_timestamp_to_iso(row.get("date_sent")),
         "mailbox": None,
         "account": None,
         "to": None,
@@ -893,16 +893,23 @@ def _row_to_summary(row: dict) -> dict:
     }
 
 
-def _apple_epoch_to_iso(seconds) -> Optional[str]:
+def _index_timestamp_to_iso(seconds) -> Optional[str]:
     if seconds is None:
         return None
     try:
         from datetime import datetime, timezone
 
+        value = float(seconds)
+        if value >= 1_000_000_000:
+            return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
         apple_epoch = datetime(2001, 1, 1, tzinfo=timezone.utc).timestamp()
-        return datetime.fromtimestamp(apple_epoch + float(seconds), tz=timezone.utc).isoformat()
+        return datetime.fromtimestamp(apple_epoch + value, tz=timezone.utc).isoformat()
     except (TypeError, ValueError, OSError):
         return None
+
+
+def _apple_epoch_to_iso(seconds) -> Optional[str]:
+    return _index_timestamp_to_iso(seconds)
 
 
 _READ_ONLY_ACTIONS = {

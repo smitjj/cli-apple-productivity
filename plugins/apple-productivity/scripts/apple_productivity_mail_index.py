@@ -49,6 +49,8 @@ _OPTIONAL_MESSAGES_COLUMNS = {
     "encoding",
 }
 
+_UNIX_TIMESTAMP_THRESHOLD = 1_000_000_000
+
 
 class MailIndexUnavailable(RuntimeError):
     """Raised when the Envelope Index cannot be opened or its schema does not
@@ -72,6 +74,7 @@ class MailIndexReader:
         self._messages_columns: set = set()
         self._table_names: set = set()
         self._sender_address_fk = False
+        self._date_stored_as_unix = False
 
     # ------------------------------------------------------------------
     # Construction / availability
@@ -135,6 +138,16 @@ class MailIndexReader:
                 for row in self._conn.execute("PRAGMA table_info('addresses')").fetchall()
             }
             self._sender_address_fk = "address" in address_cols and col_types.get("sender") == "INTEGER"
+        self._probe_date_storage()
+
+    def _probe_date_storage(self) -> None:
+        assert self._conn is not None
+        row = self._conn.execute(
+            "SELECT date_received FROM messages WHERE date_received IS NOT NULL "
+            "ORDER BY date_received DESC LIMIT 1"
+        ).fetchone()
+        if row and row[0] is not None and float(row[0]) >= _UNIX_TIMESTAMP_THRESHOLD:
+            self._date_stored_as_unix = True
 
     # ------------------------------------------------------------------
     # Lifecycle / introspection
@@ -153,6 +166,17 @@ class MailIndexReader:
 
     def has_table(self, name: str) -> bool:
         return name in self._table_names
+
+    def iso_to_index_epoch(self, value: str) -> Optional[float]:
+        unix = _iso_to_unix_or_none(value)
+        if unix is None:
+            return None
+        if self._date_stored_as_unix:
+            return unix
+        from datetime import datetime, timezone
+
+        apple_epoch = datetime(2001, 1, 1, tzinfo=timezone.utc).timestamp()
+        return unix - apple_epoch
 
     # ------------------------------------------------------------------
     # Queries
@@ -501,3 +525,22 @@ def _version_key(path: str) -> tuple:
         return (int(chunk),)
     except (IndexError, ValueError):
         return (0,)
+
+
+def _iso_to_unix_or_none(value: str) -> Optional[float]:
+    from datetime import datetime, timezone
+
+    try:
+        candidate = value.strip()
+        if len(candidate) == 10:
+            dt = datetime.strptime(candidate, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            normalized = candidate.replace(" ", "T")
+            if normalized.endswith("Z"):
+                normalized = normalized[:-1] + "+00:00"
+            dt = datetime.fromisoformat(normalized)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except (ValueError, AttributeError):
+        return None

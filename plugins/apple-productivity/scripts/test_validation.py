@@ -703,6 +703,23 @@ class IsoEpochTests(unittest.TestCase):
         from apple_productivity_service import _iso_to_epoch_or_none
         self.assertIsNone(_iso_to_epoch_or_none("not-a-date"))
 
+    def test_index_timestamp_to_iso_unix(self):
+        from apple_productivity_service import _index_timestamp_to_iso
+
+        self.assertEqual(
+            _index_timestamp_to_iso(1778577960),
+            "2026-05-12T09:26:00+00:00",
+        )
+
+    def test_index_timestamp_to_iso_apple(self):
+        from apple_productivity_service import _index_timestamp_to_iso, _iso_to_epoch_or_none
+
+        epoch = _iso_to_epoch_or_none("2026-05-10T12:34:56Z")
+        self.assertEqual(
+            _index_timestamp_to_iso(epoch),
+            "2026-05-10T12:34:56+00:00",
+        )
+
 
 class ServiceCacheIntegrationTests(unittest.TestCase):
     def setUp(self):
