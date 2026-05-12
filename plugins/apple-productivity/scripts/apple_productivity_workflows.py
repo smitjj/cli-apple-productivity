@@ -58,10 +58,15 @@ def summarize_newsletters(candidates: list[dict]) -> dict:
 
 def summarize_automation_classification(payload: dict) -> dict:
     by_signal = {0: 0, 1: 0, 2: 0}
-    for row in payload.get("signals", []):
-        signal = int(row.get("signal", -1))
-        if signal in by_signal:
-            by_signal[signal] = int(row.get("count") or 0)
+    rows = payload.get("rows", payload.get("signals", []))
+    for row in rows:
+        signal = row.get("automated_conversation", row.get("signal"))
+        count = row.get("count")
+        if signal is None or count is None:
+            continue
+        signal_key = int(signal)
+        if signal_key in by_signal:
+            by_signal[signal_key] = int(count)
     total = sum(by_signal.values())
     return {
         "total": total,

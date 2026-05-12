@@ -77,6 +77,21 @@ GLOBAL_ARGUMENTS = {
         "boolean",
         help="Fetch List-Unsubscribe links for newsletter candidates.",
     ),
+    "group_by": ArgumentSpec(
+        "group_by",
+        help="Envelope Index aggregate group-by column. Repeatable.",
+        multiple=True,
+    ),
+    "measures": ArgumentSpec(
+        "measures",
+        help="Envelope Index aggregate measure. Repeatable.",
+        multiple=True,
+    ),
+    "columns": ArgumentSpec(
+        "columns",
+        help="Envelope Index sample column. Repeatable.",
+        multiple=True,
+    ),
     "to": ArgumentSpec("to", help="Recipient address. Repeatable.", multiple=True),
     "cc": ArgumentSpec("cc", help="CC address. Repeatable.", multiple=True),
     "bcc": ArgumentSpec("bcc", help="BCC address. Repeatable.", multiple=True),
@@ -203,6 +218,16 @@ TOOL_SPECS = (
         )),
     ),
     ToolSpec(
+        "mail_index",
+        "mail-index",
+        "Read-only structured Envelope Index queries: describe schema, aggregate counts, and sample rows.",
+        ("describe", "aggregate", "sample"),
+        tuple(GLOBAL_ARGUMENTS[name] for name in (
+            "mailbox_name", "account_name", "since", "unread_only", "flagged_only",
+            "group_by", "measures", "columns", "limit", "offset",
+        )),
+    ),
+    ToolSpec(
         "mail_analyze",
         "mail-analyze",
         "Summary-first Mail triage, newsletter/unsubscribe analysis, and Envelope Index aggregate classify counts for likely automated vs likely human mail.",
@@ -249,6 +274,23 @@ def mcp_tool_schema(spec: ToolSpec) -> dict:
             },
             "required": ["lat", "lon"],
             "additionalProperties": False,
+        }
+    if spec.name == "mail_index":
+        properties["filters"] = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "column": {"type": "string"},
+                    "op": {
+                        "type": "string",
+                        "enum": ["eq", "ne", "lt", "lte", "gt", "gte", "like"],
+                    },
+                    "value": {},
+                },
+                "required": ["column", "value"],
+                "additionalProperties": False,
+            },
         }
     schema = {
         "type": "object",

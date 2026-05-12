@@ -352,6 +352,8 @@ class AppleProductivityService:
             return self._delete_calendar_event_via_applescript(args["event_id"])
         if tool_name == "mail_messages":
             return self._dispatch_mail_messages(args)
+        if tool_name == "mail_index":
+            return self._dispatch_mail_index(args)
         if tool_name == "mail_analyze":
             return self._dispatch_mail_analyze(args)
         if tool_name == "mail_permissions_check":
@@ -574,50 +576,109 @@ class AppleProductivityService:
             source="envelope_index",
         )
 
-    def classify_received_aggregate(self, arguments: dict) -> dict:
-        scoped = self._index_scoped_mail_args({"action": "list", **arguments})
-        payload = self._try_classify_received_via_index(scoped)
-        if payload is None:
-            raise RuntimeError(
-                "Envelope Index classify is unavailable for this mailbox scope. "
-                "Run mail_permissions_check (doctor) and verify envelope_index.ok."
-            )
-        return payload
-
-    def _try_classify_received_via_index(self, args: dict) -> Optional[dict]:
+    def _index_scope_args(self, args: dict, default_mailbox: Optional[str] = "INBOX") -> Optional[dict]:
+        scoped = self._index_scoped_mail_args({"action": "list", **args})
+        since_epoch = None
+        since = scoped.get("since")
         reader = self._get_mail_index()
         if reader is None:
             return None
-        account_url_hints = self._index_account_url_hints(reader, args.get("account_name"))
-        since_epoch = None
-        since = args.get("since")
         if since:
             since_epoch = reader.iso_to_index_epoch(since)
             if since_epoch is None:
                 return None
-        try:
-            payload = reader.classify_received_aggregate(
-                mailbox_name=args.get("mailbox_name") or "INBOX",
-                account_name=args.get("account_name"),
-                account_url_hints=account_url_hints,
-                since_epoch=since_epoch,
-                unread_only=bool(args.get("unread_only")),
-                flagged_only=bool(args.get("flagged_only")),
+        return {
+            "reader": reader,
+            "mailbox_name": scoped.get("mailbox_name") or default_mailbox,
+            "account_name": scoped.get("account_name"),
+            "account_url_hints": self._index_account_url_hints(reader, scoped.get("account_name")),
+            "since_epoch": since_epoch,
+            "unread_only": bool(scoped.get("unread_only")),
+            "flagged_only": bool(scoped.get("flagged_only")),
+        }
+
+    def _dispatch_mail_index(self, args: dict) -> Any:
+        action = args.get("action")
+        if action == "describe":
+            reader = self._get_mail_index()
+            if reader is None:
+                raise RuntimeError(
+                    "Envelope Index is unavailable. Run mail_permissions_check (doctor) and verify envelope_index.ok."
+                )
+            payload = reader.describe_index()
+            return {
+                "source": "envelope_index",
+                "indexPath": payload.get("indexPath"),
+                "describe": payload,
+            }
+        scope = self._index_scope_args(args)
+        if scope is None:
+            raise RuntimeError(
+                "Envelope Index query is unavailable for this mailbox scope. "
+                "Run mail_permissions_check (doctor) and verify envelope_index.ok."
             )
+        reader = scope["reader"]
+        try:
+            if action == "aggregate":
+                payload = reader.aggregate_messages(
+                    group_by=args.get("group_by"),
+                    measures=args.get("measures"),
+                    filters=args.get("filters"),
+                    mailbox_name=scope["mailbox_name"],
+                    account_name=scope["account_name"],
+                    account_url_hints=scope["account_url_hints"],
+                    since_epoch=scope["since_epoch"],
+                    unread_only=scope["unread_only"],
+                    flagged_only=scope["flagged_only"],
+                )
+            elif action == "sample":
+                rows = reader.sample_messages(
+                    columns=args.get("columns"),
+                    filters=args.get("filters"),
+                    mailbox_name=scope["mailbox_name"],
+                    account_name=scope["account_name"],
+                    account_url_hints=scope["account_url_hints"],
+                    since_epoch=scope["since_epoch"],
+                    unread_only=scope["unread_only"],
+                    flagged_only=scope["flagged_only"],
+                    limit=int(args.get("limit") or 10),
+                    offset=int(args.get("offset") or 0),
+                )
+                payload = rows
+                payload["messages"] = [_row_to_summary(row) for row in payload.get("rows", [])]
+            else:
+                raise RuntimeError(f"Unsupported mail_index action: {action}")
         except MailIndexUnavailable as exc:
-            if self.logger:
-                self.logger.info("Mail index classify unavailable: %s", exc)
-            return None
-        except Exception as exc:
-            if self.logger:
-                self.logger.info("Mail index classify raised: %s", exc)
-            return None
+            raise RuntimeError(str(exc)) from exc
+        return {
+            "source": "envelope_index",
+            "indexPath": str(reader.db_path),
+            **payload,
+        }
+
+    def classify_received_aggregate(self, arguments: dict) -> dict:
+        payload = self.dispatch(
+            "mail_index",
+            {
+                "action": "aggregate",
+                "group_by": ["automated_conversation"],
+                "measures": ["count"],
+                **arguments,
+            },
+        )
         summary = summarize_automation_classification(payload)
         return {
             "summary": summary,
             "scope": payload.get("scope"),
-            "signals": payload.get("signals"),
-            "source": "envelope_index",
+            "signals": [
+                {
+                    "signal": row.get("automated_conversation"),
+                    "count": row.get("count"),
+                }
+                for row in payload.get("rows", [])
+            ],
+            "source": payload.get("source", "envelope_index"),
+            "indexPath": payload.get("indexPath"),
         }
 
     def _try_thread_via_index(self, args: dict):
@@ -1048,6 +1109,8 @@ def _is_mutating(tool_name: str, args: dict) -> bool:
     if tool_name == "mail_permissions_check":
         return False
     if tool_name == "mail_analyze":
+        return False
+    if tool_name == "mail_index":
         return False
     action = args.get("action")
     if action in _READ_ONLY_ACTIONS:

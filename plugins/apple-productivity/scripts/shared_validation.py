@@ -125,6 +125,9 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
     if tool_name == "mail_analyze":
         validate_mail_analyze(arguments)
         return
+    if tool_name == "mail_index":
+        validate_mail_index(arguments)
+        return
     if tool_name == "mail_permissions_check":
         validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         return
@@ -153,6 +156,8 @@ def validate_registered_contract(tool_name: str, arguments: dict) -> None:
     allowed_fields = {"action", *(arg.name for arg in spec.arguments)}
     if tool_name == "reminders_tasks":
         allowed_fields.add("geofence")
+    if tool_name == "mail_index":
+        allowed_fields.add("filters")
     extra_fields = sorted(set(arguments) - allowed_fields)
     if extra_fields:
         raise RuntimeError(f"{tool_name} does not accept argument(s): {', '.join(extra_fields)}")
@@ -314,6 +319,61 @@ def validate_mail_analyze(arguments: dict) -> None:
     validate_boolean(arguments, "with_links")
     if action == "newsletters" and arguments.get("with_links") and arguments.get("limit", 10) > 25:
         raise RuntimeError("with_links accepts limit at most 25 per call.")
+
+
+def validate_mail_index(arguments: dict) -> None:
+    action = validate_action(arguments, set(TOOL_BY_NAME["mail_index"].actions))
+    validate_string(arguments, "mailbox_name")
+    validate_string(arguments, "account_name")
+    validate_date(arguments, "since")
+    validate_integer(arguments, "limit")
+    validate_integer(arguments, "offset")
+    validate_boolean(arguments, "unread_only")
+    validate_boolean(arguments, "flagged_only")
+    if action == "aggregate":
+        group_by = arguments.get("group_by")
+        if not isinstance(group_by, list) or not group_by:
+            raise RuntimeError("group_by must be a non-empty array for aggregate.")
+        for value in group_by:
+            if not isinstance(value, str) or not value.strip():
+                raise RuntimeError("group_by must contain non-empty strings.")
+        measures = arguments.get("measures")
+        if measures is not None:
+            if not isinstance(measures, list) or not measures:
+                raise RuntimeError("measures must be a non-empty array when provided.")
+            for value in measures:
+                if not isinstance(value, str) or not value.strip():
+                    raise RuntimeError("measures must contain non-empty strings.")
+    if action == "sample":
+        columns = arguments.get("columns")
+        if columns is not None:
+            if not isinstance(columns, list) or not columns:
+                raise RuntimeError("columns must be a non-empty array when provided.")
+            for value in columns:
+                if not isinstance(value, str) or not value.strip():
+                    raise RuntimeError("columns must contain non-empty strings.")
+        if arguments.get("limit", 10) > 50:
+            raise RuntimeError("sample accepts limit at most 50 per call.")
+    validate_index_filters(arguments.get("filters"))
+
+
+def validate_index_filters(filters) -> None:
+    if filters is None:
+        return
+    if not isinstance(filters, list):
+        raise RuntimeError("filters must be an array.")
+    allowed_ops = {"eq", "ne", "lt", "lte", "gt", "gte", "like"}
+    for item in filters:
+        if not isinstance(item, dict):
+            raise RuntimeError("filters must contain objects.")
+        column = item.get("column")
+        if not isinstance(column, str) or not column.strip():
+            raise RuntimeError("filters require a non-empty column.")
+        op = str(item.get("op", "eq")).lower()
+        if op not in allowed_ops:
+            raise RuntimeError(f"filters use unsupported op: {op}")
+        if "value" not in item:
+            raise RuntimeError(f"filters require value for column {column}.")
 
 
 def validate_message_id_list(arguments: dict, field: str, required: bool = False) -> None:

@@ -16,6 +16,7 @@ description: >-
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).
   - `mail_analyze` with `action: "newsletters"` for newsletter/unsubscribe candidates (CLI: `mail newsletters`).
   - `mail_analyze` with `action: "classify"` for aggregate likely-automated vs likely-human counts from Mail's Envelope Index (CLI: `mail classify`). Read `summary` first; do not page the whole mailbox or query the Envelope Index directly for this.
+- For schema discovery, grouped counts, and small index samples, use `mail_index` (`describe`, `aggregate`, `sample`; CLI: `mail-index`). Do not run `sqlite3` or other shell SQL against Mail's Envelope Index.
 - For system-like vs human-like mail totals, use `mail_analyze` → `classify` before any `mail_messages` paging. Do not open Mail's Envelope Index with `sqlite3`, SQL, or shell for aggregate counts when `classify` is available.
 - Use `mail_permissions_check` (CLI: `doctor`) to confirm `envelope_index.path` when you need the index location; use `mail_analyze` → `classify` for the counts themselves.
 - Prefer `mail_messages` **search** with scoped filters over unbounded **list** calls. For sender lookups, pass `from_address` (or an email-only `query`); do not rely on natural-language `query` text alone.
@@ -34,6 +35,7 @@ description: >-
 | Inbox triage / unread counts | `mail_analyze` → `triage` | `mail triage` |
 | Newsletter / unsubscribe scan | `mail_analyze` → `newsletters` | `mail newsletters` |
 | Automated vs human aggregate | `mail_analyze` → `classify` | `mail classify` |
+| Index schema / grouped counts / samples | `mail_index` → `describe` / `aggregate` / `sample` | `mail-index` |
 | Targeted lookup | `mail_messages` → `search` | `mail-messages search` |
 | Permissions / slow reads | `mail_permissions_check` | `doctor` |
 | Calendar day view | `calendar_events` → `list` | `calendar agenda` |
@@ -60,3 +62,17 @@ Use for aggregate likely-automated vs likely-human counts over a mailbox scope. 
 Common arguments: `mailbox_name`, `account_name`, `since`, `unread_only`, `flagged_only`.
 
 Read `summary.collapsed` first (`likelyHuman`, `likelyAutomated`, `ambiguous`). Use `summary.automatedConversation` when you need raw Mail `automated_conversation` signal counts.
+
+## `mail_index` actions
+
+### `describe`
+
+Use before custom breakdowns to see probed tables, message columns, allowed `groupBy` / `measures` / `filters`, and sample columns.
+
+### `aggregate`
+
+Use for grouped counts over a mailbox scope. Pass `group_by` (repeatable) and optional `measures` (`count`, `min_date_received`, `max_date_received`). Optional `filters` use `{column, op, value}` with ops `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `like`.
+
+### `sample`
+
+Use for a small capped row sample from the index. Optional `columns` and `filters`; `limit` max 50. Prefer `messages` in the response for follow-up `mail_messages` actions.

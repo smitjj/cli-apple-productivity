@@ -453,6 +453,19 @@ class MailAnalyzeValidationTests(unittest.TestCase):
         )
 
 
+class MailIndexValidationTests(unittest.TestCase):
+    def test_describe_accepts_empty_scope(self):
+        validate_tool_arguments("mail_index", {"action": "describe"})
+
+    def test_aggregate_requires_group_by(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments("mail_index", {"action": "aggregate"})
+
+    def test_sample_rejects_high_limit(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments("mail_index", {"action": "sample", "limit": 51})
+
+
 class PermissionsCheckTests(unittest.TestCase):
     def test_check_action_optional(self):
         validate_tool_arguments("mail_permissions_check", {})

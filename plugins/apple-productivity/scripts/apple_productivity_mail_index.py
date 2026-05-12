@@ -51,6 +51,46 @@ _OPTIONAL_MESSAGES_COLUMNS = {
 }
 
 _UNIX_TIMESTAMP_THRESHOLD = 1_000_000_000
+_INDEX_FILTER_OPS = frozenset({"eq", "ne", "lt", "lte", "gt", "gte", "like"})
+_INDEX_AGGREGATE_MEASURES = {
+    "count": ("COUNT(*)", "count"),
+    "min_date_received": ("MIN(m.date_received)", "min_date_received"),
+    "max_date_received": ("MAX(m.date_received)", "max_date_received"),
+}
+_INDEX_GROUP_BY_COLUMNS = {
+    "automated_conversation": "m.automated_conversation",
+    "read": "m.read",
+    "flagged": "m.flagged",
+    "mailbox": "m.mailbox",
+    "conversation_id": "m.conversation_id",
+}
+_INDEX_FILTER_COLUMNS = {
+    "automated_conversation": ("m.automated_conversation", False),
+    "read": ("m.read", False),
+    "flagged": ("m.flagged", False),
+    "mailbox": ("m.mailbox", False),
+    "conversation_id": ("m.conversation_id", False),
+    "date_received": ("m.date_received", False),
+    "date_sent": ("m.date_sent", False),
+    "sender_address": ("LOWER(sender_addr.address)", True),
+    "sender_comment": ("LOWER(COALESCE(sender_addr.comment, ''))", True),
+}
+_INDEX_SAMPLE_COLUMNS = {
+    "rowid": "m.ROWID AS rowid",
+    "message_id": "m.message_id AS message_id",
+    "subject": "m.subject AS subject",
+    "sender": None,
+    "date_received": "m.date_received AS date_received",
+    "date_sent": "m.date_sent AS date_sent",
+    "mailbox_rowid": "m.mailbox AS mailbox_rowid",
+    "read": "m.read AS read",
+    "flagged": "m.flagged AS flagged",
+    "automated_conversation": "m.automated_conversation AS automated_conversation",
+    "conversation_id": "m.conversation_id AS conversation_id",
+    "snippet": None,
+    "sender_address": "sender_addr.address AS sender_address",
+    "sender_comment": "sender_addr.comment AS sender_comment",
+}
 
 
 class MailIndexUnavailable(RuntimeError):
@@ -288,6 +328,186 @@ class MailIndexReader:
             "messages": rows,
         }
 
+    def describe_index(self) -> dict:
+        assert self._conn is not None
+        tables = sorted(self._table_names)
+        message_columns = []
+        for row in self._conn.execute("PRAGMA table_info('messages')").fetchall():
+            name = row["name"]
+            roles: list[str] = []
+            if name in _INDEX_GROUP_BY_COLUMNS:
+                roles.append("group")
+            if name in _INDEX_FILTER_COLUMNS:
+                roles.append("filter")
+            if name in _INDEX_SAMPLE_COLUMNS:
+                roles.append("sample")
+            message_columns.append(
+                {
+                    "name": name,
+                    "type": row["type"],
+                    "roles": roles,
+                }
+            )
+        group_by = [
+            name
+            for name in _INDEX_GROUP_BY_COLUMNS
+            if name in self._messages_columns
+        ]
+        filters = [
+            name
+            for name in _INDEX_FILTER_COLUMNS
+            if name in self._messages_columns
+            or (name in {"sender_address", "sender_comment"} and self._sender_address_fk)
+        ]
+        sample_columns = [
+            name
+            for name in _INDEX_SAMPLE_COLUMNS
+            if name in self._messages_columns
+            or name in {"rowid", "sender", "snippet", "sender_address", "sender_comment"}
+        ]
+        return {
+            "indexPath": str(self.db_path),
+            "tables": tables,
+            "messages": {
+                "columns": message_columns,
+            },
+            "capabilities": {
+                "aggregate": {
+                    "groupBy": group_by,
+                    "measures": list(_INDEX_AGGREGATE_MEASURES),
+                    "filters": filters,
+                    "filterOps": sorted(_INDEX_FILTER_OPS),
+                },
+                "sample": {
+                    "columns": sample_columns,
+                    "filters": filters,
+                    "filterOps": sorted(_INDEX_FILTER_OPS),
+                    "maxLimit": 50,
+                },
+            },
+            "dateStoredAsUnix": self._date_stored_as_unix,
+            "senderAddressFk": self._sender_address_fk,
+        }
+
+    def aggregate_messages(
+        self,
+        group_by: Optional[list[str]] = None,
+        measures: Optional[list[str]] = None,
+        filters: Optional[list[dict]] = None,
+        mailbox_name: Optional[str] = None,
+        account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
+        since_epoch: Optional[float] = None,
+        unread_only: bool = False,
+        flagged_only: bool = False,
+    ) -> dict:
+        assert self._conn is not None
+        group_by = list(group_by or [])
+        if not group_by:
+            raise MailIndexUnavailable("aggregate requires at least one group_by column")
+        measures = list(measures or ["count"])
+        clauses: list[str] = []
+        params: list = []
+        self._append_scope_filters(
+            clauses,
+            params,
+            mailbox_name=mailbox_name,
+            account_name=account_name,
+            account_url_hints=account_url_hints,
+            since_epoch=since_epoch,
+            unread_only=unread_only,
+            flagged_only=flagged_only,
+        )
+        needs_sender_join = self._append_query_filters(clauses, params, filters or [])
+        group_exprs = [self._resolve_group_expr(name) for name in group_by]
+        select_parts = [f"{expr} AS {name}" for name, expr in zip(group_by, group_exprs)]
+        for measure in measures:
+            sql_expr, alias = self._resolve_measure(measure)
+            select_parts.append(f"{sql_expr} AS {alias}")
+        sql_parts = [
+            "SELECT " + ", ".join(select_parts),
+            "FROM messages m",
+        ]
+        sender_join = self._sender_join_sql() if needs_sender_join else ""
+        if sender_join:
+            sql_parts.append(sender_join)
+        if clauses:
+            sql_parts.append("WHERE " + " AND ".join(clauses))
+        sql_parts.append("GROUP BY " + ", ".join(group_exprs))
+        sql_parts.append("ORDER BY " + ", ".join(group_exprs))
+        try:
+            rows = self._conn.execute("\n".join(sql_parts), params).fetchall()
+        except sqlite3.Error as exc:
+            raise MailIndexUnavailable(f"aggregate query failed: {exc}") from exc
+        return {
+            "scope": self._index_scope_payload(
+                mailbox_name,
+                account_name,
+                since_epoch,
+                unread_only,
+                flagged_only,
+            ),
+            "groupBy": group_by,
+            "measures": measures,
+            "rows": [dict(row) for row in rows],
+        }
+
+    def sample_messages(
+        self,
+        columns: Optional[list[str]] = None,
+        filters: Optional[list[dict]] = None,
+        mailbox_name: Optional[str] = None,
+        account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
+        since_epoch: Optional[float] = None,
+        unread_only: bool = False,
+        flagged_only: bool = False,
+        limit: int = 10,
+        offset: int = 0,
+    ) -> dict:
+        assert self._conn is not None
+        selected_columns = self._resolve_sample_columns(columns)
+        clauses: list[str] = []
+        params: list = []
+        self._append_scope_filters(
+            clauses,
+            params,
+            mailbox_name=mailbox_name,
+            account_name=account_name,
+            account_url_hints=account_url_hints,
+            since_epoch=since_epoch,
+            unread_only=unread_only,
+            flagged_only=flagged_only,
+        )
+        needs_sender_join = self._append_query_filters(clauses, params, filters or [])
+        select_parts = self._sample_select_parts(selected_columns)
+        sql_parts = ["SELECT " + ", ".join(select_parts), "FROM messages m"]
+        sender_join = self._sender_join_sql()
+        if sender_join and (needs_sender_join or self._sender_address_fk):
+            sql_parts.append(sender_join)
+        if clauses:
+            sql_parts.append("WHERE " + " AND ".join(clauses))
+        sql_parts.append("ORDER BY m.date_received DESC")
+        sql_parts.append("LIMIT ? OFFSET ?")
+        params.append(int(max(1, min(limit, 50))))
+        params.append(int(max(0, offset)))
+        try:
+            rows = self._conn.execute("\n".join(sql_parts), params).fetchall()
+        except sqlite3.Error as exc:
+            raise MailIndexUnavailable(f"sample query failed: {exc}") from exc
+        return {
+            "scope": self._index_scope_payload(
+                mailbox_name,
+                account_name,
+                since_epoch,
+                unread_only,
+                flagged_only,
+            ),
+            "columns": selected_columns,
+            "count": len(rows),
+            "rows": [dict(row) for row in rows],
+        }
+
     def classify_received_aggregate(
         self,
         mailbox_name: Optional[str] = None,
@@ -297,48 +517,25 @@ class MailIndexReader:
         unread_only: bool = False,
         flagged_only: bool = False,
     ) -> dict:
-        """Count messages grouped by Mail's ``automated_conversation`` signal."""
-        assert self._conn is not None
-        if not self.has_column("automated_conversation"):
-            raise MailIndexUnavailable("messages.automated_conversation not present in this schema")
-        clauses = []
-        params: list = []
-        if since_epoch is not None:
-            clauses.append("m.date_received >= ?")
-            params.append(since_epoch)
-        if unread_only:
-            clauses.append("m.read = 0")
-        if flagged_only:
-            clauses.append("m.flagged = 1")
-        self._append_active_message_filters(clauses)
-        mailbox_filter = self._build_mailbox_filter(
-            mailbox_name,
-            account_name,
+        payload = self.aggregate_messages(
+            group_by=["automated_conversation"],
+            measures=["count"],
+            mailbox_name=mailbox_name,
+            account_name=account_name,
             account_url_hints=account_url_hints,
+            since_epoch=since_epoch,
+            unread_only=unread_only,
+            flagged_only=flagged_only,
         )
-        if mailbox_filter is not None:
-            clauses.append(mailbox_filter[0])
-            params.extend(mailbox_filter[1])
-        sql_parts = [
-            "SELECT m.automated_conversation AS signal, COUNT(*) AS count",
-            "FROM messages m",
-        ]
-        if clauses:
-            sql_parts.append("WHERE " + " AND ".join(clauses))
-        sql_parts.append("GROUP BY m.automated_conversation")
-        try:
-            rows = self._conn.execute("\n".join(sql_parts), params).fetchall()
-        except sqlite3.Error as exc:
-            raise MailIndexUnavailable(f"classify aggregate query failed: {exc}") from exc
+        signals = []
+        for row in payload["rows"]:
+            signal = row.get("automated_conversation")
+            count = row.get("count")
+            if signal is not None and count is not None:
+                signals.append({"signal": signal, "count": count})
         return {
-            "scope": {
-                "mailbox": mailbox_name,
-                "account": account_name,
-                "sinceEpoch": since_epoch,
-                "unreadOnly": unread_only,
-                "flaggedOnly": flagged_only,
-            },
-            "signals": [dict(row) for row in rows],
+            "scope": payload.get("scope"),
+            "signals": signals,
         }
 
     def list_thread(self, message_id_header: str, limit: int = 100) -> list:
@@ -401,6 +598,156 @@ class MailIndexReader:
     def _append_active_message_filters(self, clauses: list) -> None:
         if self.has_column("deleted"):
             clauses.append("m.deleted = 0")
+
+    def _index_scope_payload(
+        self,
+        mailbox_name: Optional[str],
+        account_name: Optional[str],
+        since_epoch: Optional[float],
+        unread_only: bool,
+        flagged_only: bool,
+    ) -> dict:
+        return {
+            "mailbox": mailbox_name,
+            "account": account_name,
+            "sinceEpoch": since_epoch,
+            "unreadOnly": unread_only,
+            "flaggedOnly": flagged_only,
+        }
+
+    def _append_scope_filters(
+        self,
+        clauses: list,
+        params: list,
+        mailbox_name: Optional[str] = None,
+        account_name: Optional[str] = None,
+        account_url_hints: Optional[list[str]] = None,
+        since_epoch: Optional[float] = None,
+        unread_only: bool = False,
+        flagged_only: bool = False,
+    ) -> None:
+        if since_epoch is not None:
+            clauses.append("m.date_received >= ?")
+            params.append(since_epoch)
+        if unread_only:
+            clauses.append("m.read = 0")
+        if flagged_only:
+            clauses.append("m.flagged = 1")
+        self._append_active_message_filters(clauses)
+        mailbox_filter = self._build_mailbox_filter(
+            mailbox_name,
+            account_name,
+            account_url_hints=account_url_hints,
+        )
+        if mailbox_filter is not None:
+            clauses.append(mailbox_filter[0])
+            params.extend(mailbox_filter[1])
+
+    def _append_query_filters(self, clauses: list, params: list, filters: list[dict]) -> bool:
+        needs_sender_join = False
+        for item in filters:
+            if not isinstance(item, dict):
+                raise MailIndexUnavailable("filters must be objects")
+            column = item.get("column")
+            op = str(item.get("op", "eq")).lower()
+            if op not in _INDEX_FILTER_OPS:
+                raise MailIndexUnavailable(f"unsupported filter op: {op}")
+            if column not in _INDEX_FILTER_COLUMNS:
+                raise MailIndexUnavailable(f"unsupported filter column: {column}")
+            expr, join_sender = _INDEX_FILTER_COLUMNS[column]
+            if join_sender and not self._sender_address_fk:
+                raise MailIndexUnavailable(f"filter column unavailable: {column}")
+            needs_sender_join = needs_sender_join or join_sender
+            if column not in self._messages_columns and column not in {"sender_address", "sender_comment"}:
+                raise MailIndexUnavailable(f"filter column unavailable: {column}")
+            value = self._coerce_filter_value(column, op, item.get("value"))
+            if op == "eq":
+                clauses.append(f"{expr} = ?")
+                params.append(value)
+            elif op == "ne":
+                clauses.append(f"{expr} != ?")
+                params.append(value)
+            elif op == "lt":
+                clauses.append(f"{expr} < ?")
+                params.append(value)
+            elif op == "lte":
+                clauses.append(f"{expr} <= ?")
+                params.append(value)
+            elif op == "gt":
+                clauses.append(f"{expr} > ?")
+                params.append(value)
+            elif op == "gte":
+                clauses.append(f"{expr} >= ?")
+                params.append(value)
+            else:
+                clauses.append(f"{expr} LIKE ?")
+                params.append(value)
+        return needs_sender_join
+
+    def _coerce_filter_value(self, column: str, op: str, value):
+        if value is None:
+            raise MailIndexUnavailable(f"filter value is required for {column}")
+        if column in {"date_received", "date_sent"} and op != "like":
+            if isinstance(value, str):
+                epoch = self.iso_to_index_epoch(value)
+                if epoch is None:
+                    raise MailIndexUnavailable(f"invalid date filter for {column}")
+                return epoch
+        if column in {"sender_address", "sender_comment"} and op == "like" and isinstance(value, str):
+            return value.lower()
+        if column in {"sender_address", "sender_comment"} and isinstance(value, str):
+            return value.lower()
+        return value
+
+    def _resolve_group_expr(self, name: str) -> str:
+        if name not in _INDEX_GROUP_BY_COLUMNS:
+            raise MailIndexUnavailable(f"unsupported group_by column: {name}")
+        if name not in self._messages_columns:
+            raise MailIndexUnavailable(f"group_by column unavailable: {name}")
+        return _INDEX_GROUP_BY_COLUMNS[name]
+
+    def _resolve_measure(self, name: str) -> tuple[str, str]:
+        if name not in _INDEX_AGGREGATE_MEASURES:
+            raise MailIndexUnavailable(f"unsupported measure: {name}")
+        return _INDEX_AGGREGATE_MEASURES[name]
+
+    def _resolve_sample_columns(self, columns: Optional[list[str]]) -> list[str]:
+        if not columns:
+            defaults = ["rowid", "subject", "sender", "date_received", "read", "flagged"]
+            return [name for name in defaults if self._sample_column_available(name)]
+        selected: list[str] = []
+        for name in columns:
+            if name not in _INDEX_SAMPLE_COLUMNS:
+                raise MailIndexUnavailable(f"unsupported sample column: {name}")
+            if not self._sample_column_available(name):
+                raise MailIndexUnavailable(f"sample column unavailable: {name}")
+            if name not in selected:
+                selected.append(name)
+        return selected
+
+    def _sample_column_available(self, name: str) -> bool:
+        if name in {"rowid", "sender", "snippet"}:
+            return True
+        if name in {"sender_address", "sender_comment"}:
+            return self._sender_address_fk
+        if name == "snippet":
+            return self.has_column("snippet") or self.has_column("summary")
+        return name in self._messages_columns
+
+    def _sample_select_parts(self, columns: list[str]) -> list[str]:
+        parts: list[str] = []
+        for name in columns:
+            if name == "sender":
+                parts.append(f"{self._sender_select_expr()} AS sender")
+                continue
+            if name == "snippet":
+                if self.has_column("snippet"):
+                    parts.append("m.snippet AS snippet")
+                elif self.has_column("summary"):
+                    parts.append("m.summary AS snippet")
+                continue
+            parts.append(_INDEX_SAMPLE_COLUMNS[name])
+        return parts
 
     def _subject_search_expr(self) -> str:
         if self.has_column("subject_prefix"):
