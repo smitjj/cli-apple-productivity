@@ -327,11 +327,11 @@ class McpMetadataTests(unittest.TestCase):
         with mock.patch.object(mcp_server, "write_message") as write_message:
             mcp_server.handle_request({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         response = write_message.call_args.args[0]
+        capabilities = response["result"]["capabilities"]
         server_info = response["result"]["serverInfo"]
-        self.assertEqual(server_info["owner"], "smitjj")
-        self.assertEqual(server_info["license"], "Apache-2.0")
-        self.assertEqual(server_info["repository"], "https://github.com/smitjj/cli-apple-productivity")
-        self.assertIn("risk", server_info["riskNotice"].lower())
+        self.assertEqual(server_info["name"], "apple-productivity")
+        self.assertEqual(server_info["version"], "0.5.1")
+        self.assertEqual(capabilities["tools"]["listChanged"], False)
 
 
 if __name__ == "__main__":

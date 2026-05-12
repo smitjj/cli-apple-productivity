@@ -10,11 +10,8 @@ from apple_productivity_service import AppleProductivityService
 
 
 SERVER_NAME = "apple-productivity"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.5.1"
 PROTOCOL_VERSION = "2024-11-05"
-PROJECT_REPOSITORY = "https://github.com/smitjj/cli-apple-productivity"
-PROJECT_LICENSE = "Apache-2.0"
-PROJECT_OWNER = "smitjj"
 TOOLS = mcp_tools()
 
 
@@ -64,17 +61,10 @@ def handle_request(message: dict) -> None:
             request_id,
             {
                 "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {
                     "name": SERVER_NAME,
                     "version": SERVER_VERSION,
-                    "repository": PROJECT_REPOSITORY,
-                    "license": PROJECT_LICENSE,
-                    "owner": PROJECT_OWNER,
-                    "riskNotice": (
-                        "Runs local macOS automation against Apple Mail, Calendar, and Reminders. "
-                        "Use at your own risk."
-                    ),
                 },
             },
         )
