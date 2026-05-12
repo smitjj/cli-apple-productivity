@@ -205,6 +205,18 @@ function mailAccounts() {
 }
 
 function mailMailboxes(input) {
+  const action = input.action || "list";
+  switch (action) {
+    case "list":
+      return listMailMailboxes(input);
+    case "create":
+      return createMailMailbox(input);
+    default:
+      throw new Error("Unsupported mail_mailboxes action: " + action);
+  }
+}
+
+function listMailMailboxes(input) {
   const includeCounts = Boolean(input.include_counts);
   return getMailAccounts(input.account_name).map(function (account) {
     return {
@@ -218,6 +230,31 @@ function mailMailboxes(input) {
       }),
     };
   });
+}
+
+function createMailMailbox(input) {
+  const accountName = input.account_name;
+  if (!accountName) throw new Error("account_name is required");
+  const mailboxName = input.mailbox_name;
+  if (!mailboxName) throw new Error("mailbox_name is required");
+  const account = getMailAccounts(accountName)[0];
+  let container = account;
+  if (input.parent_mailbox) {
+    container = resolveMailMailbox(input.parent_mailbox, accountName).mailbox;
+  }
+  const created = container.mailboxes.push(mail.Mailbox({ name: String(mailboxName) }));
+  const resolved = created && created.name ? created : resolveMailMailbox(mailboxName, accountName).mailbox;
+  const path = input.parent_mailbox
+    ? resolveMailMailbox(input.parent_mailbox, accountName).path + "/" + mailboxName
+    : mailboxName;
+  return {
+    created: true,
+    mailbox: {
+      name: safeCall(function () { return resolved.name(); }, mailboxName),
+      path: path,
+      account: accountName,
+    },
+  };
 }
 
 function mailMessages(input) {

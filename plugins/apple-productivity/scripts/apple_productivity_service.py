@@ -1115,6 +1115,8 @@ _READ_ONLY_ACTIONS = {
 def _is_mutating(tool_name: str, args: dict) -> bool:
     """Return True if the call would mutate state (used by read-only mode)."""
     if tool_name in {"mail_accounts", "mail_mailboxes", "calendar_calendars"}:
+        if tool_name == "mail_mailboxes" and args.get("action") == "create":
+            return True
         return False
     if tool_name == "mail_compose":
         return True  # all compose actions create or send

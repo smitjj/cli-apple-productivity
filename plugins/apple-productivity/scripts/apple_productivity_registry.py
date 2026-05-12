@@ -61,6 +61,7 @@ GLOBAL_ARGUMENTS = {
     "flagged_only": ArgumentSpec("flagged_only", "boolean", help="Only include flagged messages."),
     "include_source": ArgumentSpec("include_source", "boolean", help="Include raw message source when supported."),
     "target_mailbox": ArgumentSpec("target_mailbox", help="Target mailbox name."),
+    "parent_mailbox": ArgumentSpec("parent_mailbox", help="Parent mailbox path for nested folders."),
     "target_account": ArgumentSpec("target_account", help="Target account name."),
     "read": ArgumentSpec("read", "bool_string", choices=("true", "false"), help="Read state."),
     "flagged": ArgumentSpec("flagged", "bool_string", choices=("true", "false"), help="Flagged state."),
@@ -139,9 +140,11 @@ TOOL_SPECS = (
     ToolSpec(
         "mail_mailboxes",
         "mail-mailboxes",
-        "List Apple Mail mailboxes.",
-        ("list",),
-        (GLOBAL_ARGUMENTS["account_name"], GLOBAL_ARGUMENTS["include_counts"]),
+        "List or create Apple Mail mailboxes.",
+        ("list", "create"),
+        tuple(GLOBAL_ARGUMENTS[name] for name in (
+            "account_name", "mailbox_name", "parent_mailbox", "include_counts", "dry_run",
+        )),
         action_required=False,
     ),
     ToolSpec(

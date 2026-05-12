@@ -1,6 +1,6 @@
 {
   "name": "apple-productivity",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "Control Apple Mail, Calendar, and Reminders on macOS through a CLI-first local service with an MCP adapter.",
   "author": {
     "name": "smitjj",

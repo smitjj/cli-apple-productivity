@@ -38,6 +38,7 @@ description: >-
 | System-generated vs human-generated counts | `mail_analyze` → `classify` or `system_vs_human` | `mail classify` |
 | Index schema / grouped counts / samples | `mail_index` → `describe` / `aggregate` / `sample` | `mail-index` |
 | Targeted lookup | `mail_messages` → `search` | `mail-messages search` |
+| Create a Mail folder | `mail_mailboxes` → `create` | `mail-mailboxes create` |
 | Permissions / slow reads | `mail_permissions_check` | `doctor` |
 | Calendar day view | `calendar_events` → `list` | `calendar agenda` |
 | Day plan | `calendar_events` + `reminders_tasks` | `day plan` |

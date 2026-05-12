@@ -416,6 +416,25 @@ class MailDraftsValidationTests(unittest.TestCase):
             validate_tool_arguments("mail_drafts", {"action": "send_now"})
 
 
+class MailMailboxValidationTests(unittest.TestCase):
+    def test_create_requires_account_and_mailbox_name(self):
+        validate_tool_arguments(
+            "mail_mailboxes",
+            {
+                "action": "create",
+                "account_name": "Host Africa",
+                "mailbox_name": "Reports",
+            },
+        )
+
+    def test_create_requires_mailbox_name(self):
+        with self.assertRaises(RuntimeError):
+            validate_tool_arguments(
+                "mail_mailboxes",
+                {"action": "create", "account_name": "Host Africa"},
+            )
+
+
 class MailAnalyzeValidationTests(unittest.TestCase):
     def test_triage_accepts_filters(self):
         validate_tool_arguments(
@@ -659,6 +678,7 @@ class IsMutatingTests(unittest.TestCase):
     def test_mutating_actions_are_flagged(self):
         from apple_productivity_service import _is_mutating
         self.assertTrue(_is_mutating("mail_messages", {"action": "delete"}))
+        self.assertTrue(_is_mutating("mail_mailboxes", {"action": "create"}))
         self.assertTrue(_is_mutating("mail_messages", {"action": "bulk-move"}))
         self.assertTrue(_is_mutating("mail_compose", {"action": "create"}))
         self.assertTrue(_is_mutating("mail_drafts", {"action": "send"}))

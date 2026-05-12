@@ -47,6 +47,7 @@ SEARCH_QUERY_FILLER = frozenset(
 
 
 MAIL_MESSAGE_ACTIONS = set(TOOL_BY_NAME["mail_messages"].actions)
+MAIL_MAILBOX_ACTIONS = set(TOOL_BY_NAME["mail_mailboxes"].actions)
 MAIL_COMPOSE_ACTIONS = set(TOOL_BY_NAME["mail_compose"].actions)
 MAIL_DRAFT_ACTIONS = set(TOOL_BY_NAME["mail_drafts"].actions)
 MAIL_ANALYZE_ACTIONS = set(TOOL_BY_NAME["mail_analyze"].actions)
@@ -119,9 +120,7 @@ def validate_tool_arguments(tool_name: str, arguments: dict) -> None:
         validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
         return
     if tool_name == "mail_mailboxes":
-        validate_action(arguments, set(TOOL_BY_NAME[tool_name].actions), required=False)
-        validate_string(arguments, "account_name")
-        validate_boolean(arguments, "include_counts")
+        validate_mail_mailboxes(arguments)
         return
     if tool_name == "mail_messages":
         validate_mail_messages(arguments)
@@ -190,6 +189,15 @@ def validate_registered_bounds(field: str, value, minimum, maximum) -> None:
             raise RuntimeError(f"{field} must be at least {minimum}.")
         if maximum is not None and item > maximum:
             raise RuntimeError(f"{field} must be at most {maximum}.")
+
+
+def validate_mail_mailboxes(arguments: dict) -> None:
+    action = validate_action(arguments, MAIL_MAILBOX_ACTIONS, required=False)
+    validate_string(arguments, "account_name")
+    validate_boolean(arguments, "include_counts")
+    if action == "create":
+        validate_string(arguments, "mailbox_name", required=True, max_length=500)
+        validate_string(arguments, "parent_mailbox", max_length=500)
 
 
 def validate_mail_messages(arguments: dict) -> None:
