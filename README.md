@@ -46,6 +46,8 @@ You should see `command: /usr/bin/python3`, `args: -u ./scripts/apple_productivi
 
 If you already have the repo open in Codex, the workspace marketplace at `.agents/plugins/marketplace.json` can also expose the same plugin without adding the GitHub marketplace manually. After plugin changes, run `codex plugin marketplace upgrade smitjj-apple-productivity` and restart Codex.
 
+If Mail automation fails with `osascript: .../apple_productivity_jxa.js: No such file or directory`, the Codex plugin cache is stale or incomplete. Upgrade the marketplace plugin, restart Codex, and confirm `codex mcp get apple-productivity` points at a cache directory that contains `scripts/apple_productivity_jxa.js`. Run `mail_permissions_check` (CLI `doctor`) and inspect `plugin.ok`, `plugin.version`, and `plugin.tools.mail_mailboxes` before retrying mailbox create/rename.
+
 Grant **Automation** and **Full Disk Access** to the Codex host process before large Mail searches. Run `mail_permissions_check` (or CLI `doctor`) and confirm `envelope_index.ok` when you want the fast Envelope Index path.
 
 ### CLI install

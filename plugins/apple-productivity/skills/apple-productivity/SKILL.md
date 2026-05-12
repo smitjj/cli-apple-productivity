@@ -12,6 +12,7 @@ description: >-
 ## Agent guidance
 
 - If the user asks how many emails are system-generated vs human-generated, automated vs human, or machine vs person, call `mail_analyze` with `action: "classify"` (alias `system_vs_human`) or `mail classify`. Do not run `sqlite3`, SQL, or shell against `~/Library/Mail/.../Envelope Index`.
+- If Mail automation fails with a missing `apple_productivity_jxa.js` path, tell the user to upgrade the marketplace plugin and restart Codex; do not claim mailbox create/rename is unavailable on current plugin versions.
 - Use Apple Productivity only for Mail, Calendar, and Reminders work on macOS.
 - Prefer summary-first tools before raw message dumps:
   - `mail_analyze` with `action: "triage"` for inbox triage (CLI: `mail triage`).

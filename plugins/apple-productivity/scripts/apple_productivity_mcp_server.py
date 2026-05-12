@@ -5,18 +5,25 @@ from __future__ import annotations
 import json
 import sys
 
+from pathlib import Path
+
 from apple_productivity_registry import KNOWN_TOOLS, mcp_tools
-from apple_productivity_service import AppleProductivityService
+from apple_productivity_service import AppleProductivityService, load_plugin_version, SCRIPT_PATH
 
 
 SERVER_NAME = "apple-productivity"
-SERVER_VERSION = "0.5.6"
+SERVER_VERSION = load_plugin_version(SCRIPT_PATH) or "0.0.0"
 PROTOCOL_VERSION = "2024-11-05"
 TOOLS = mcp_tools()
-
-
-SERVICE = AppleProductivityService()
+SERVICE: AppleProductivityService | None = None
 USE_FRAMED_STDIO: bool | None = None
+
+
+def get_service() -> AppleProductivityService:
+    global SERVICE
+    if SERVICE is None:
+        SERVICE = AppleProductivityService()
+    return SERVICE
 
 
 def write_message(message: dict) -> None:
@@ -106,7 +113,16 @@ def handle_request(message: dict) -> None:
             error_response(request_id, -32601, f"Unknown tool: {tool_name}")
             return
         try:
-            result = SERVICE.dispatch(tool_name, arguments)
+            result = get_service().dispatch(tool_name, arguments)
+        except RuntimeError as exc:
+            success_response(
+                request_id,
+                {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "isError": True,
+                },
+            )
+            return
         except Exception as exc:
             success_response(
                 request_id,

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import unquote
 
-from apple_productivity_registry import KNOWN_TOOLS
+from apple_productivity_registry import KNOWN_TOOLS, TOOL_BY_NAME
 from apple_productivity_workflows import (
     run_mail_classify_workflow,
     run_mail_newsletters_workflow,
@@ -66,6 +66,41 @@ SCOPED_MAIL_ACTIONS = {
     "get-thread",
     "get-unsubscribe-link",
 }
+
+
+def plugin_root_for_script(script_path: Path) -> Path:
+    return script_path.resolve().parent.parent
+
+
+def load_plugin_version(script_path: Path) -> Optional[str]:
+    plugin_json = plugin_root_for_script(script_path) / ".codex-plugin" / "plugin.json"
+    if not plugin_json.is_file():
+        return None
+    try:
+        payload = json.loads(plugin_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    version = payload.get("version")
+    return str(version) if version is not None else None
+
+
+def plugin_install_diagnostic(script_path: Path) -> dict:
+    resolved = script_path.resolve()
+    exists = resolved.is_file()
+    return {
+        "ok": exists,
+        "version": load_plugin_version(resolved),
+        "scriptPath": str(resolved),
+        "error": None if exists else f"Mail automation script missing at {resolved}",
+        "recovery": (
+            "Upgrade the Apple Productivity marketplace plugin and restart Codex so "
+            "`codex mcp get apple-productivity` points at a cache that includes "
+            "scripts/apple_productivity_jxa.js."
+        ),
+        "tools": {
+            "mail_mailboxes": sorted(TOOL_BY_NAME["mail_mailboxes"].actions),
+        },
+    }
 
 
 class MessageScopeCache:
@@ -357,11 +392,7 @@ class AppleProductivityService:
         if tool_name == "mail_analyze":
             return self._dispatch_mail_analyze(args)
         if tool_name == "mail_permissions_check":
-            result = self._invoke_jxa(tool_name, args)
-            if isinstance(result, dict):
-                result = dict(result)
-                result["envelope_index"] = self._envelope_index_diagnostic()
-            return result
+            return self._mail_permissions_check()
         return self._invoke_jxa(tool_name, args)
 
     def _get_eventkit(self):
@@ -789,6 +820,28 @@ class AppleProductivityService:
                 },
             },
         }
+
+    def _mail_permissions_check(self) -> dict:
+        payload = {
+            "plugin": plugin_install_diagnostic(self.script_path),
+            "envelope_index": self._envelope_index_diagnostic(),
+        }
+        if not payload["plugin"]["ok"]:
+            blocked = {"ok": False, "error": payload["plugin"]["error"]}
+            payload.update(
+                {
+                    "automation": blocked,
+                    "full_disk_access": blocked,
+                    "mail_running": blocked,
+                    "calendar": blocked,
+                    "reminders": blocked,
+                }
+            )
+            return payload
+        result = self._invoke_jxa("mail_permissions_check", {"action": "check"})
+        if isinstance(result, dict):
+            payload.update(result)
+        return payload
 
     def _dispatch_mail_analyze(self, args: dict) -> Any:
         action = args.get("action")

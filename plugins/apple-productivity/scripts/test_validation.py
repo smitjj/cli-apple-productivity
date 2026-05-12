@@ -493,6 +493,18 @@ class MailAnalyzeValidationTests(unittest.TestCase):
         self.assertEqual(args["mailbox_name"], "INBOX")
 
 
+class PluginInstallDiagnosticTests(unittest.TestCase):
+    def test_missing_jxa_reports_recovery_and_mailbox_actions(self):
+        from apple_productivity_service import plugin_install_diagnostic
+        from pathlib import Path
+
+        payload = plugin_install_diagnostic(Path("/tmp/apple-productivity-missing-jxa.js"))
+        self.assertFalse(payload["ok"])
+        self.assertIn("create", payload["tools"]["mail_mailboxes"])
+        self.assertIn("rename", payload["tools"]["mail_mailboxes"])
+        self.assertIn("upgrade", payload["recovery"].lower())
+
+
 class MailIndexValidationTests(unittest.TestCase):
     def test_describe_accepts_empty_scope(self):
         validate_tool_arguments("mail_index", {"action": "describe"})
